@@ -1,0 +1,14 @@
+server:
+  port: 8080
+
+spring:
+  thymeleaf:
+    cache: false
+
+api:
+  lk888:
+    key: ${LK888_API_KEY:}
+    base-url: https://api.lk888.ai
+  tokenplan:
+    key: ${TOKENPLAN_API_KEY:}
+    base-url: https://token-plan.cn-beijing.maas.aliyuncs.com

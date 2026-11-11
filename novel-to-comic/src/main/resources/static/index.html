@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小说转Q版火柴人漫画</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <h1>🎬 小说转Q版火柴人漫画</h1>
+      <span class="version">v4.0</span>
+    </header>
+
+    <!-- Restore Banner -->
+    <div class="restore-banner" id="bannerRestore" style="display:none;">
+      <div class="banner-icon">📂</div>
+      <div class="banner-info">
+        <div class="banner-title">检测到上次任务</div>
+        <div class="banner-detail"><span id="bannerTitle"></span> · <span id="bannerProgress"></span></div>
+      </div>
+      <div class="banner-actions">
+        <button class="btn btn-primary btn-sm" id="btnRestore">▶ 继续执行</button>
+        <button class="btn btn-outline btn-sm" id="btnRestoreNew">✕ 新建任务</button>
+      </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div class="main-layout">
+
+      <!-- Left: Step Panel -->
+      <aside class="step-panel" id="stepPanel">
+        <h3>流水线步骤</h3>
+        <div class="step-list" id="stepList">
+          <!-- Populated by JS -->
+        </div>
+        <div class="step-actions">
+          <button class="btn btn-sm btn-outline" id="btnReset" disabled>🔄 重置</button>
+          <button class="btn btn-sm btn-outline" id="btnDownload" disabled>📥 下载结果</button>
+        </div>
+      </aside>
+
+      <!-- Right: Content Area -->
+      <main class="content-area">
+
+        <!-- Step 0: Input Phase -->
+        <section class="panel" id="panelInput">
+          <h2>📖 输入小说文本</h2>
+          <div class="input-tabs">
+            <button class="tab active" data-tab="paste">📝 粘贴文本</button>
+            <button class="tab" data-tab="upload">📁 上传文件</button>
+          </div>
+
+          <!-- Paste Tab -->
+          <div class="tab-content active" id="tabPaste">
+            <textarea id="novelText" placeholder="在此粘贴小说全文...&#10;&#10;或者切换到「上传文件」选项卡上传 .txt 文件"></textarea>
+          </div>
+
+          <!-- Upload Tab -->
+          <div class="tab-content" id="tabUpload">
+            <div class="upload-zone" id="uploadZone">
+              <div class="upload-icon">📁</div>
+              <p>拖拽 .txt 文件到此处，或点击选择文件</p>
+              <input type="file" id="fileInput" accept=".txt" hidden>
+              <button class="btn btn-outline" id="btnSelectFile">选择文件</button>
+            </div>
+            <div class="upload-info" id="uploadInfo" style="display:none;">
+              <span class="file-icon">📄</span>
+              <span id="uploadFileName"></span>
+              <span class="file-size" id="uploadFileSize"></span>
+              <button class="btn btn-xs btn-outline" id="btnClearFile">✕</button>
+            </div>
+          </div>
+
+          <!-- Settings -->
+          <div class="settings-row">
+            <div class="setting">
+              <label for="segmentCount">拆分片段数：</label>
+              <input type="number" id="segmentCount" value="90" min="1" max="140" step="1">
+              <span class="hint">(1-140，默认90)</span>
+            </div>
+            <div class="setting">
+              <label for="novelTitle">作品标题：</label>
+              <input type="text" id="novelTitle" placeholder="未命名作品">
+            </div>
+          </div>
+
+          <div class="warning-box" id="warningBox" style="display:none;"></div>
+
+          <div class="action-row">
+            <button class="btn btn-primary btn-lg" id="btnStart">🚀 开始处理</button>
+          </div>
+        </section>
+
+        <!-- Step Results Panels -->
+        <section class="panel" id="panelResult" style="display:none;">
+          <div class="result-header">
+            <h2 id="resultTitle">处理结果</h2>
+            <span class="badge" id="resultStatus"></span>
+          </div>
+          <div class="progress-bar" id="progressBar" style="display:none;">
+            <div class="progress-fill" id="progressFill"></div>
+            <span class="progress-text" id="progressText"></span>
+          </div>
+          <div class="result-content" id="resultContent">
+            <!-- Filled by JS -->
+          </div>
+          <div class="action-row">
+            <button class="btn btn-primary btn-lg" id="btnContinue" style="display:none;">
+              ▶ 继续下一步
+            </button>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

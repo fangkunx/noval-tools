@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文生图工具</title>
+<style>
+  :root { --bg:#0f1117; --bg2:#1a1d27; --bg3:#252836; --border:#2e3140; --text:#e1e4ed; --text2:#8b8fa5; --accent:#22d3ee; --accent2:#0891b2; --err:#f87171; --ok:#4ade80; --warn:#fbbf24; --radius:8px; --shadow:0 2px 8px rgba(0,0,0,.3); }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; overflow:hidden; }
+  a { color:var(--accent); }
+  /* Sidebar */
+  .sidebar { width:300px; min-width:300px; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; padding:16px; gap:12px; }
+  .sidebar h2 { font-size:18px; display:flex; align-items:center; gap:8px; }
+  .sidebar h2 .logo { font-size:24px; }
+  .sidebar label { font-size:12px; color:var(--text2); text-transform:uppercase; letter-spacing:.5px; margin-bottom:2px; display:block; font-weight:600; }
+  .sidebar select, .sidebar input[type="text"], .sidebar input[type="number"] { width:100%; background:var(--bg3); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:var(--radius); font-size:13px; outline:none; transition:border-color .2s; }
+  .sidebar select:focus, .sidebar input:focus { border-color:var(--accent); }
+  .param-group { background:var(--bg); border-radius:var(--radius); padding:12px; }
+  .param-row { margin-bottom:8px; }
+  .param-row:last-child { margin-bottom:0; }
+  .btn-gen { width:100%; padding:12px; background:var(--accent); color:#000; border:none; border-radius:var(--radius); font-size:15px; font-weight:700; cursor:pointer; transition:all .2s; }
+  .btn-gen:hover { background:#67e8f9; transform:translateY(-1px); }
+  .btn-gen:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+  .backend-tabs { display:flex; gap:4px; background:var(--bg3); border-radius:var(--radius); padding:3px; }
+  .backend-tab { flex:1; text-align:center; padding:6px 0; border-radius:6px; cursor:pointer; font-size:13px; transition:all .2s; border:none; background:transparent; color:var(--text2); }
+  .backend-tab.active { background:var(--bg); color:var(--accent); font-weight:600; }
+  /* Main */
+  .main { flex:1; display:flex; flex-direction:column; overflow-y:auto; padding:16px 24px; gap:16px; }
+  .prompt-area { background:var(--bg2); border-radius:var(--radius); border:1px solid var(--border); }
+  .prompt-area textarea { width:100%; height:120px; background:transparent; border:none; color:var(--text); padding:16px; font-size:14px; resize:vertical; outline:none; font-family:inherit; line-height:1.6; }
+  .prompt-area textarea::placeholder { color:var(--text2); }
+  .styles-bar { display:flex; flex-wrap:wrap; gap:6px; }
+  .style-chip { padding:4px 12px; border-radius:20px; border:1px solid var(--border); background:var(--bg2); color:var(--text2); font-size:12px; cursor:pointer; transition:all .2s; white-space:nowrap; }
+  .style-chip:hover { border-color:var(--accent); color:var(--text); }
+  .style-chip.active { border-color:var(--accent); background:rgba(34,211,238,.12); color:var(--accent); }
+  /* Ref images */
+  .ref-section { background:var(--bg2); border-radius:var(--radius); border:1px solid var(--border); padding:12px; }
+  .ref-section h3 { font-size:13px; color:var(--text2); margin-bottom:8px; }
+  .ref-upload { border:2px dashed var(--border); border-radius:var(--radius); padding:20px; text-align:center; cursor:pointer; transition:all .2s; min-height:80px; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:8px; }
+  .ref-upload:hover { border-color:var(--accent); background:rgba(34,211,238,.03); }
+  .ref-upload.drag-over { border-color:var(--accent); background:rgba(34,211,238,.08); }
+  .ref-thumb { width:72px; height:72px; border-radius:6px; object-fit:cover; border:1px solid var(--border); position:relative; }
+  .ref-thumb-wrap { position:relative; display:inline-block; }
+  .ref-thumb-del { position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%; background:var(--err); color:#fff; border:none; cursor:pointer; font-size:10px; display:flex; align-items:center; justify-content:center; }
+  /* Results */
+  .results { background:var(--bg2); border-radius:var(--radius); border:1px solid var(--border); padding:16px; min-height:200px; }
+  .results h3 { font-size:14px; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .progress-bar { height:4px; background:var(--bg3); border-radius:2px; overflow:hidden; margin:8px 0; }
+  .progress-bar .fill { height:100%; background:var(--accent); border-radius:2px; transition:width .5s; }
+  .status-line { font-size:13px; color:var(--text2); display:flex; align-items:center; gap:8px; }
+  .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .status-dot.running { background:var(--warn); animation:pulse 1s infinite; }
+  .status-dot.success { background:var(--ok); }
+  .status-dot.error { background:var(--err); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .img-grid { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; }
+  .img-card { border-radius:var(--radius); overflow:hidden; border:1px solid var(--border); background:var(--bg3); max-width:300px; }
+  .img-card img { width:100%; display:block; }
+  .img-card .actions { display:flex; gap:4px; padding:8px; }
+  .img-card .actions button { flex:1; padding:6px; border-radius:4px; border:1px solid var(--border); background:var(--bg); color:var(--text); cursor:pointer; font-size:12px; transition:all .2s; }
+  .img-card .actions button:hover { border-color:var(--accent); color:var(--accent); }
+  /* History */
+  .history { max-height:150px; overflow-y:auto; }
+  .history-item { padding:6px 8px; border-radius:4px; cursor:pointer; font-size:12px; color:var(--text2); transition:all .2s; display:flex; justify-content:space-between; }
+  .history-item:hover { background:var(--bg3); color:var(--text); }
+  .history-item .time { color:var(--text2); font-size:11px; }
+  .cost-badge { background:rgba(251,191,36,.15); color:var(--warn); padding:1px 6px; border-radius:10px; font-size:11px; }
+  /* Settings modal */
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:100; align-items:center; justify-content:center; }
+  .modal-overlay.show { display:flex; }
+  .modal { background:var(--bg2); border-radius:12px; border:1px solid var(--border); padding:24px; width:480px; max-height:80vh; overflow-y:auto; }
+  .modal h3 { margin-bottom:16px; font-size:18px; }
+  .modal label { font-size:13px; color:var(--text2); display:block; margin-bottom:4px; }
+  .modal input { width:100%; background:var(--bg3); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:var(--radius); font-size:13px; margin-bottom:12px; outline:none; }
+  .modal input:focus { border-color:var(--accent); }
+  .modal .btn-row { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
+  .modal button { padding:8px 16px; border-radius:var(--radius); cursor:pointer; font-size:13px; border:1px solid var(--border); background:var(--bg3); color:var(--text); }
+  .modal button.primary { background:var(--accent); color:#000; border-color:var(--accent); font-weight:600; }
+  .btn-icon { background:transparent; border:1px solid var(--border); color:var(--text2); padding:6px 10px; border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all .2s; }
+  .btn-icon:hover { border-color:var(--accent); color:var(--accent); }
+  .flex-row { display:flex; align-items:center; gap:8px; }
+  .grow { flex:1; }
+  .text-sm { font-size:12px; color:var(--text2); }
+  .mt-8 { margin-top:8px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <h2><span class="logo">🎨</span> 文生图工具</h2>
+
+  <div>
+    <label>后端 API</label>
+    <div class="backend-tabs" id="backendTabs">
+      <button class="backend-tab active" data-backend="lk888">lk888</button>
+      <button class="backend-tab" data-backend="tokenplan">百炼</button>
+    </div>
+  </div>
+
+  <div>
+    <label>模型</label>
+    <select id="modelSelect"></select>
+  </div>
+
+  <div class="param-group" id="paramsContainer"></div>
+
+  <button class="btn-gen" id="btnGenerate" onclick="doGenerate()">
+    🚀 生成图片
+  </button>
+
+  <div>
+    <label>📋 历史记录</label>
+    <div class="history" id="historyList">
+      <div class="text-sm" style="padding:8px">暂无记录</div>
+    </div>
+  </div>
+
+  <button class="btn-icon" onclick="openSettings()">⚙ 设置 API Key</button>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <div class="prompt-area">
+    <textarea id="txtPrompt" placeholder="输入提示词来描述你想生成的图片...&#10;&#10;推荐格式：主体 + 场景 + 风格 + 光线 + 氛围&#10;例：一只白猫在月光下奔跑，日式动漫风格，柔光，温暖"></textarea>
+  </div>
+
+  <div>
+    <div class="flex-row" style="margin-bottom:6px">
+      <span class="text-sm">🎨 风格预设</span>
+      <span class="text-sm grow"></span>
+      <span class="text-sm" style="cursor:pointer" onclick="clearStyle()">清除风格</span>
+    </div>
+    <div class="styles-bar" id="styleChips">
+      <button class="style-chip" data-style="写实">📷 写实</button>
+      <button class="style-chip" data-style="动漫">🌸 动漫</button>
+      <button class="style-chip" data-style="古风">🏯 古风</button>
+      <button class="style-chip" data-style="水彩">🎨 水彩</button>
+      <button class="style-chip" data-style="赛博朋克">🌃 赛博朋克</button>
+      <button class="style-chip" data-style="极简">⬜ 极简</button>
+      <button class="style-chip" data-style="像素">👾 像素</button>
+      <button class="style-chip" data-style="3D">🧊 3D</button>
+      <button class="style-chip" data-style="插画">✏ 插画</button>
+      <button class="style-chip" data-style="素描">✒ 素描</button>
+      <button class="style-chip" data-style="油画">🖼 油画</button>
+    </div>
+  </div>
+
+  <div class="ref-section" id="refSection">
+    <h3>🖼 参考图片 <span id="refCount" class="text-sm">(最多16张)</span></h3>
+    <div class="ref-upload" id="refDrop" onclick="document.getElementById('refInput').click()">
+      <div style="pointer-events:none">📁 点击或拖拽图片到此处</div>
+    </div>
+    <input type="file" id="refInput" accept="image/*" multiple style="display:none" onchange="onRefSelect(this)">
+  </div>
+
+  <div class="results" id="resultsArea">
+    <h3>📸 生成结果</h3>
+    <div id="resultContent">
+      <div class="text-sm" style="text-align:center;padding:40px 0">输入提示词后点击「生成图片」开始</div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <h3>⚙ API 配置</h3>
+    <label>lk888 API Key</label>
+    <input type="text" id="cfgLk888Key" placeholder="sk-...">
+    <label>lk888 Base URL</label>
+    <input type="text" id="cfgLk888Url" placeholder="https://api.lk888.ai">
+    <label style="margin-top:8px">百炼 API Key</label>
+    <input type="text" id="cfgTokenPlanKey" placeholder="sk-...">
+    <label>百炼 Base URL</label>
+    <input type="text" id="cfgTokenPlanUrl" placeholder="https://token-plan.cn-beijing.maas.aliyuncs.com">
+    <div class="btn-row">
+      <button onclick="closeSettings()">取消</button>
+      <button class="primary" onclick="saveSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// === State ===
+let currentBackend = 'lk888';
+let currentModel = 'tt-image-2.6';
+let currentStyle = '';
+let refImages = [];      // [{ name, dataUrl }]
+let activeTaskId = null;
+let pollingTimer = null;
+let models = [];
+
+// === Init ===
+document.getElementById('backendTabs').addEventListener('click', e => {
+  const tab = e.target.closest('.backend-tab');
+  if (!tab) return;
+  currentBackend = tab.dataset.backend;
+  document.querySelectorAll('.backend-tab').forEach(t => t.classList.toggle('active', t === tab));
+  loadModelList();
+});
+
+// Style chips
+document.getElementById('styleChips').addEventListener('click', e => {
+  const chip = e.target.closest('.style-chip');
+  if (!chip) return;
+  currentStyle = chip.dataset.style;
+  document.querySelectorAll('.style-chip').forEach(c => c.classList.toggle('active', c === chip));
+});
+
+// Ref upload drag & drop
+const refDrop = document.getElementById('refDrop');
+refDrop.addEventListener('dragover', e => { e.preventDefault(); refDrop.classList.add('drag-over'); });
+refDrop.addEventListener('dragleave', () => refDrop.classList.remove('drag-over'));
+refDrop.addEventListener('drop', e => {
+  e.preventDefault();
+  refDrop.classList.remove('drag-over');
+  addRefFiles(e.dataTransfer.files);
+});
+
+document.getElementById('refInput').addEventListener('change', function() { addRefFiles(this.files); });
+
+// Model select change
+document.getElementById('modelSelect').addEventListener('change', function() {
+  currentModel = this.value;
+  const m = models.find(x => x.name === currentModel);
+  if (m) renderParams(m);
+});
+
+// === API calls ===
+async function api(path, opts = {}) {
+  const base = window.location.origin;
+  const resp = await fetch(base + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts
+  });
+  return resp.json();
+}
+
+async function loadModels() {
+  const data = await api('/api/models');
+  models = data.models || [];
+  loadModelList();
+}
+
+function loadModelList() {
+  const sel = document.getElementById('modelSelect');
+  const filtered = models.filter(m => m.backend === currentBackend);
+  sel.innerHTML = filtered.map(m =>
+    `<option value="${m.name}" ${m.name === currentModel ? 'selected' : ''}>${m.displayName || m.name}</option>`
+  ).join('');
+  if (filtered.length > 0) {
+    currentModel = sel.value;
+    renderParams(filtered[0]);
+    updateRefLimit();
+  }
+}
+
+function renderParams(model) {
+  const params = model.params || [];
+  let html = '';
+  params.forEach(p => {
+    if (p.key === 'referenceImages') {
+      html += ''; // handled separately
+    } else if (p.key === 'negativePrompt') {
+      html += `<div class="param-row">
+        <label>🚫 排除内容</label>
+        <input type="text" id="param_negativePrompt" placeholder="模糊,低质量,文字" />
+      </div>`;
+    } else if (p.key === 'numImages') {
+      html += `<div class="param-row">
+        <label>📊 生成数量</label>
+        <input type="number" id="param_numImages" value="1" min="1" max="4" />
+      </div>`;
+    } else if (p.type === 'select' && p.options) {
+      const opts = p.options.split('|');
+      html += `<div class="param-row"><label>${labelName(p.key)}</label><select id="param_${p.key}">${
+        opts.map(o => `<option value="${o}" ${o === p.defaultValue ? 'selected' : ''}>${labelValue(p.key, o)}</option>`).join('')
+      }</select></div>`;
+    } else if (p.type === 'text' || p.key === 'size') {
+      html += `<div class="param-row"><label>📐 ${p.key === 'size' ? '自定义尺寸' : labelName(p.key)}</label><input type="text" id="param_${p.key}" placeholder="${p.defaultValue || '1536x864'}" /></div>`;
+    }
+  });
+  document.getElementById('paramsContainer').innerHTML = html;
+  updateRefLimit();
+}
+
+function updateRefLimit() {
+  const max = currentBackend === 'tokenplan' ? 10 : 16;
+  document.getElementById('refCount').textContent = `(最多${max}张)`;
+}
+
+function labelName(key) {
+  const map = { aspect_ratio:'📐 比例', resolution:'🔍 分辨率', quality:'✨ 画质', complexity:'🧩 复杂度', output_format:'📦 格式', background:'🏁 背景', version:'⚡ 版本', size:'📐 尺寸' };
+  return map[key] || key;
+}
+
+function labelValue(key, val) {
+  if (key === 'quality') return {auto:'自适应',low:'低',medium:'中',high:'高',xhigh:'超高',max:'极致'}[val] || val;
+  if (key === 'complexity') return {low:'低(精简)',medium:'中(适中)',high:'高(丰富)'}[val] || val;
+  if (key === 'version') return {flare:'标准版',sunburst:'增强版'}[val] || val;
+  if (key === 'background') return {auto:'自适应',opaque:'不透明',transparent:'透明'}[val] || val;
+  if (key === 'output_format') return {png:'PNG',jpeg:'JPEG',webp:'WebP',svg:'SVG矢量',gif:'GIF动图'}[val] || val;
+  if (key === 'aspect_ratio') {
+    const m = { '1:1':'1:1 方形', '16:9':'16:9 横屏', '9:16':'9:16 竖屏', '4:3':'4:3 横版', '3:4':'3:4 竖版',
+      '3:2':'3:2 横版', '2:3':'2:3 竖版', '5:4':'5:4 横版', '4:5':'4:5 竖版',
+      '2:1':'2:1 超宽', '1:2':'1:2 超长', '21:9':'21:9 影院', '9:21':'9:21 超长' };
+    return m[val] || val;
+  }
+  return val;
+}
+
+// === Reference image handling ===
+function addRefFiles(files) {
+  const max = currentBackend === 'tokenplan' ? 10 : 16;
+  Array.from(files).forEach(file => {
+    if (refImages.length >= max) return;
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = function() {
+      refImages.push({ name: file.name, dataUrl: reader.result });
+      if (refImages.length >= max) return;
+    };
+    reader.readAsDataURL(file);
+  });
+  setTimeout(renderRefs, 200);
+}
+
+function removeRef(idx) {
+  refImages.splice(idx, 1);
+  renderRefs();
+}
+
+function renderRefs() {
+  const drop = document.getElementById('refDrop');
+  if (refImages.length === 0) {
+    drop.innerHTML = '<div style="pointer-events:none">📁 点击或拖拽图片到此处</div>';
+    return;
+  }
+  drop.innerHTML = refImages.map((r, i) =>
+    `<div class="ref-thumb-wrap"><img class="ref-thumb" src="${r.dataUrl}" title="${r.name}"><button class="ref-thumb-del" onclick="event.stopPropagation();removeRef(${i})">×</button></div>`
+  ).join('') + `<div style="pointer-events:none;font-size:12px;color:var(--text2)">+ 点击继续添加</div>`;
+}
+
+function clearStyle() {
+  currentStyle = '';
+  document.querySelectorAll('.style-chip').forEach(c => c.classList.remove('active'));
+}
+
+// === Generate ===
+async function doGenerate() {
+  const prompt = document.getElementById('txtPrompt').value.trim();
+  if (!prompt) { alert('请输入提示词'); return; }
+
+  const btn = document.getElementById('btnGenerate');
+  btn.disabled = true;
+  btn.textContent = '⏳ 生成中...';
+
+  // Stop any existing polling
+  if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
+  activeTaskId = null;
+
+  // Build request
+  const req = {
+    backend: currentBackend,
+    model: currentModel,
+    prompt: currentStyle ? prompt + ', ' + styleDesc(currentStyle) : prompt,
+    referenceImages: refImages.length > 0 ? refImages.map(r => r.dataUrl) : null,
+  };
+
+  // Collect params from the form
+  const m = models.find(x => x.name === currentModel);
+  if (m && m.params) {
+    m.params.forEach(p => {
+      if (p.key === 'referenceImages') return;
+      const el = document.getElementById('param_' + p.key);
+      if (el) {
+        const val = el.value.trim();
+        if (val && val !== p.defaultValue && val !== 'auto') {
+          if (p.key === 'numImages') req.numImages = parseInt(val) || 1;
+          else req[camelCase(p.key)] = val;
+        }
+      }
+    });
+  }
+
+  // Show status
+  showStatus('running', currentBackend === 'lk888' ? '提交任务...' : '生成中...', 0);
+
+  try {
+    const result = await api('/api/generate', { method: 'POST', body: JSON.stringify(req) });
+
+    if (result.state === 'error') {
+      showStatus('error', '错误: ' + (result.error || '未知'), 100);
+    } else if (result.state === 'submitted' && currentBackend === 'lk888') {
+      // Async - start polling
+      activeTaskId = result.taskId;
+      showStatus('running', '任务已提交 (ID: ' + result.taskId + ')，等待生成...', 10);
+      startPolling(result.taskId);
+      btn.textContent = '🔄 轮询中...';
+    } else if (result.isFinal || result.state === 'success') {
+      // Success (sync tokenplan or already done)
+      showResult(result);
+      addHistory(prompt, result);
+      btn.textContent = '🚀 生成图片';
+      btn.disabled = false;
+    } else {
+      showStatus('error', '未知状态', 100);
+      btn.textContent = '🚀 生成图片';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    showStatus('error', '请求失败: ' + e.message, 100);
+    btn.textContent = '🚀 生成图片';
+    btn.disabled = false;
+  }
+}
+
+function startPolling(taskId) {
+  let count = 0;
+  pollingTimer = setInterval(async () => {
+    count++;
+    try {
+      const result = await api('/api/status/' + taskId + '?wait=false');
+      const pct = parseInt(result.progress) || 0;
+      showStatus(result.isFinal && result.state === 'success' ? 'success' :
+                 result.isFinal && result.state === 'failed' ? 'error' : 'running',
+                 '状态: ' + (result.status || '处理中') + ' | 进度: ' + (result.progress || '0%') +
+                 (result.cost > 0 ? ' | 费用: ¥' + result.cost.toFixed(4) : ''),
+                 pct);
+
+      if (result.isFinal) {
+        clearInterval(pollingTimer);
+        pollingTimer = null;
+        if (result.state === 'success') {
+          showResult(result);
+          addHistory(document.getElementById('txtPrompt').value.trim(), result);
+        }
+        document.getElementById('btnGenerate').textContent = '🚀 生成图片';
+        document.getElementById('btnGenerate').disabled = false;
+      } else if (count > 30) {
+        clearInterval(pollingTimer);
+        pollingTimer = null;
+        showStatus('error', '轮询超时 (taskId: ' + taskId + ')，请稍后手动查询', 100);
+        document.getElementById('btnGenerate').textContent = '🚀 生成图片';
+        document.getElementById('btnGenerate').disabled = false;
+      }
+    } catch (e) {
+      if (count > 30) {
+        clearInterval(pollingTimer);
+        pollingTimer = null;
+      }
+    }
+  }, 5000);
+}
+
+function showStatus(state, text, progress) {
+  const dotClass = state === 'running' ? 'running' : state === 'success' ? 'success' : 'error';
+  document.getElementById('resultContent').innerHTML = `
+    <div class="status-line">
+      <span class="status-dot ${dotClass}"></span> ${text}
+    </div>
+    <div class="progress-bar"><div class="fill" style="width:${progress}%"></div></div>
+  `;
+}
+
+function showResult(result) {
+  const urls = result.resultUrls || result.imageUrls || [];
+  if (result.resultUrl && urls.length === 0) urls.push(result.resultUrl);
+
+  if (urls.length === 0) {
+    showStatus('error', '未获取到图片 URL', 100);
+    return;
+  }
+
+  let html = '';
+  urls.forEach((url, i) => {
+    html += `<div class="img-card">
+      <img src="${url}" alt="生成图片 ${i+1}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22300%22><rect fill=%22%231a1d27%22 width=%22300%22 height=%22300%22/><text fill=%22%238b8fa5%22 x=%22150%22 y=%22155%22 text-anchor=%22middle%22 font-size=%2213%22>加载失败</text></svg>'">
+      <div class="actions">
+        <button onclick="window.open('${url}')">🔗 新窗口</button>
+        <button onclick="downloadImg('${url}', ${i})">💾 下载</button>
+      </div>
+    </div>`;
+  });
+
+  const cost = result.cost > 0 ? ` <span class="cost-badge">¥${result.cost.toFixed(4)}</span>` : '';
+  document.getElementById('resultContent').innerHTML = `
+    <div class="flex-row" style="margin-bottom:8px">
+      <span class="status-dot success"></span> 已完成 ${cost}
+    </div>
+    <div class="img-grid">${html}</div>
+  `;
+}
+
+function downloadImg(url, idx) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `generated_${new Date().toISOString().slice(0,19).replace(/[T:]/g,'')}_${idx}.png`;
+  a.target = '_blank';
+  a.click();
+}
+
+function styleDesc(s) {
+  const map = {
+    '写实':'写实摄影风格，超高清，真实光影，细节丰富，8K',
+    '动漫':'日式动漫风格，干净线条，鲜艳色彩',
+    '古风':'中国古典水墨画风，留白，意境深远，工笔',
+    '水彩':'水彩手绘风格，柔和色彩，湿画法晕染',
+    '油画':'古典油画风格，厚涂笔触，丰富质感',
+    '赛博朋克':'赛博朋克风格，霓虹灯，雨夜城市，蓝紫调',
+    '极简':'极简主义，大面积留白，几何构图，干净',
+    '像素':'像素艺术风格，复古游戏，点阵，16-bit',
+    '3D':'3D渲染风格，C4D，Octane渲染，柔和光线',
+    '插画':'扁平矢量插画风格，干净色块，现代设计感',
+    '素描':'铅笔素描风格，细腻线条，黑白灰调'
+  };
+  return map[s] || s;
+}
+
+function camelCase(str) {
+  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+
+// === History ===
+function addHistory(prompt, result) {
+  const items = JSON.parse(localStorage.getItem('txt2img_history') || '[]');
+  items.unshift({
+    time: new Date().toLocaleTimeString(),
+    prompt: prompt.slice(0, 50),
+    model: currentModel,
+    backend: currentBackend,
+    cost: result.cost || 0,
+    urls: result.resultUrls || result.imageUrls || (result.resultUrl ? [result.resultUrl] : [])
+  });
+  if (items.length > 50) items.length = 50;
+  localStorage.setItem('txt2img_history', JSON.stringify(items));
+  renderHistory();
+}
+
+function renderHistory() {
+  const items = JSON.parse(localStorage.getItem('txt2img_history') || '[]');
+  const el = document.getElementById('historyList');
+  if (items.length === 0) {
+    el.innerHTML = '<div class="text-sm" style="padding:8px">暂无记录</div>';
+    return;
+  }
+  el.innerHTML = items.map((h, i) => `
+    <div class="history-item" onclick="loadHistory(${i})" title="${h.prompt}">
+      <span>${h.time} ${h.prompt}</span>
+      ${h.cost > 0 ? `<span class="cost-badge">¥${h.cost.toFixed(4)}</span>` : ''}
+    </div>
+  `).join('');
+}
+
+function loadHistory(idx) {
+  const items = JSON.parse(localStorage.getItem('txt2img_history') || '[]');
+  if (idx >= items.length) return;
+  const h = items[idx];
+  document.getElementById('txtPrompt').value = h.prompt;
+  if (h.backend) {
+    currentBackend = h.backend;
+    document.querySelectorAll('.backend-tab').forEach(t => t.classList.toggle('active', t.dataset.backend === h.backend));
+    loadModelList();
+  }
+  if (h.model) {
+    currentModel = h.model;
+    setTimeout(() => { document.getElementById('modelSelect').value = h.model; }, 100);
+  }
+  // Show saved result
+  if (h.urls && h.urls.length > 0) {
+    let html = '<div class="img-grid">';
+    h.urls.forEach((url, i) => {
+      html += `<div class="img-card">
+        <img src="${url}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22300%22><rect fill=%22%231a1d27%22 width=%22300%22 height=%22300%22/><text fill=%22%238b8fa5%22 x=%22150%22 y=%22155%22 text-anchor=%22middle%22 font-size=%2213%22>链接已过期</text></svg>'">
+        <div class="actions">
+          <button onclick="window.open('${url}')">🔗 新窗口</button>
+          <button onclick="downloadImg('${url}', ${i})">💾 下载</button>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+    document.getElementById('resultContent').innerHTML = html;
+  }
+}
+
+// === Settings ===
+function openSettings() {
+  document.getElementById('cfgLk888Key').value = localStorage.getItem('cfg_lk888_key') || '';
+  document.getElementById('cfgLk888Url').value = localStorage.getItem('cfg_lk888_url') || '';
+  document.getElementById('cfgTokenPlanKey').value = localStorage.getItem('cfg_tokenplan_key') || '';
+  document.getElementById('cfgTokenPlanUrl').value = localStorage.getItem('cfg_tokenplan_url') || '';
+  document.getElementById('settingsModal').classList.add('show');
+}
+
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('show');
+}
+
+function saveSettings() {
+  localStorage.setItem('cfg_lk888_key', document.getElementById('cfgLk888Key').value);
+  localStorage.setItem('cfg_lk888_url', document.getElementById('cfgLk888Url').value);
+  localStorage.setItem('cfg_tokenplan_key', document.getElementById('cfgTokenPlanKey').value);
+  localStorage.setItem('cfg_tokenplan_url', document.getElementById('cfgTokenPlanUrl').value);
+  closeSettings();
+  alert('已保存！设置将在下次请求时生效（当前使用服务器端默认 Key）。');
+}
+
+// Load history on start
+renderHistory();
+loadModels();
+</script>
+</body>
+</html>

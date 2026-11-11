@@ -2,21 +2,16 @@ package com.novel.comic.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.comic.config.AppConfig;
+import com.novel.comic.service.step.StepContext;
+import com.novel.comic.service.step.StepStrategyRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Core pipeline service managing all 7 steps and their state.
@@ -29,8 +24,11 @@ public class PipelineService {
     private final AiService aiService;
     private final SseService sseService;
     private final ObjectMapper mapper;
+    private final StepStrategyRegistry strategyRegistry;
+    private final TaskStore taskStore;
 
     // ─── Pipeline State ─────────────────────────────────────────────
+    private volatile String currentTaskId = null;
     private volatile String novelText = "";
     private volatile String novelTitle = "";
     private volatile int segmentCount;
@@ -62,18 +60,25 @@ public class PipelineService {
     );
 
     public PipelineService(AppConfig.PipelineConfig config, AiService aiService,
-                           SseService sseService, ObjectMapper mapper) {
+                           SseService sseService, ObjectMapper mapper,
+                           StepStrategyRegistry strategyRegistry,
+                           TaskStore taskStore) {
         this.config = config;
         this.aiService = aiService;
         this.sseService = sseService;
         this.mapper = mapper;
+        this.strategyRegistry = strategyRegistry;
+        this.taskStore = taskStore;
         this.segmentCount = config.getDefaultSegments();
         resetPipeline();
+        // Auto-resume the last active project on startup
+        loadLatestTask();
     }
 
     // ─── State Management ───────────────────────────────────────────
 
     public synchronized void resetPipeline() {
+        currentTaskId = null;
         novelText = "";
         novelTitle = "";
         segmentCount = config.getDefaultSegments();
@@ -103,94 +108,134 @@ public class PipelineService {
 
     // ─── State Persistence ──────────────────────────────────────────
 
+    /**
+     * Save current pipeline state to SQLite.
+     * Each step's data goes to its own dedicated table.
+     * Called after init, after each step, and on error.
+     */
     public synchronized void saveState() {
-        try {
-            Map<String, Object> state = new LinkedHashMap<>();
-            state.put("novelText", novelText);
-            state.put("novelTitle", novelTitle);
-            state.put("segmentCount", segmentCount);
-            state.put("currentStep", currentStep);
-            state.put("savedAt", Instant.now().toString());
+        if (currentTaskId == null) return;
 
-            List<Map<String, Object>> stepList = new ArrayList<>();
-            for (StepState s : steps) {
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("index", s.index);
-                m.put("id", s.id);
-                m.put("name", s.name);
-                m.put("icon", s.icon);
-                m.put("desc", s.desc);
-                m.put("status", s.status);
-                m.put("error", s.error);
-                m.put("streamText", sseService.getStreamText(s.index));
-                m.put("result", s.result);
-                stepList.add(m);
-            }
-            state.put("steps", stepList);
-            state.put("segments", segments);
-            state.put("characters", characters);
-            state.put("characterTurnarounds", characterTurnarounds);
-            state.put("storyboards", storyboards);
-            state.put("renamedText", renamedText);
-            state.put("nameMapping", nameMapping);
-            state.put("renamedSegments", renamedSegments);
-            state.put("finalPrompts", finalPrompts);
-            state.put("lastPagePrompt", lastPagePrompt);
+        // Determine overall task status
+        String taskStatus = "IN_PROGRESS";
+        boolean allDone = steps.stream().allMatch(s -> "done".equals(s.status));
+        if (allDone) taskStatus = "COMPLETED";
 
-            Files.write(config.getStateFilePath(),
-                    mapper.writerWithDefaultPrettyPrinter().writeValueAsString(state)
-                            .getBytes(StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            log.error("Failed to save pipeline state: {}", e.getMessage());
+        // Update task metadata
+        taskStore.updateTaskMeta(currentTaskId, currentStep, taskStatus);
+
+        // Save each step's status
+        for (StepState s : steps) {
+            taskStore.updateStepStatus(currentTaskId, s.index, s.status, s.error,
+                    sseService.getStreamText(s.index), s.result);
         }
+
+        // Save step data to individual tables (only if data is non-empty)
+        if (!segments.isEmpty()) taskStore.saveSplitSegments(currentTaskId, segments);
+        if (!characters.isEmpty()) taskStore.saveCharacters(currentTaskId, characters);
+        if (!characterTurnarounds.isEmpty()) taskStore.saveTurnarounds(currentTaskId, characterTurnarounds);
+        if (!storyboards.isEmpty()) taskStore.saveStoryboards(currentTaskId, storyboards);
+        if (!nameMapping.isEmpty()) taskStore.saveNameMappings(currentTaskId, nameMapping);
+        if (!finalPrompts.isEmpty()) taskStore.savePrompts(currentTaskId, finalPrompts);
+        if (lastPagePrompt != null && !lastPagePrompt.isEmpty()) taskStore.saveLastPage(currentTaskId, lastPagePrompt);
     }
 
+    /**
+     * Load a specific project from SQLite into current pipeline state.
+     * Each step's data is loaded from its dedicated table.
+     */
     @SuppressWarnings("unchecked")
-    public synchronized boolean loadState() {
-        Path fp = config.getStateFilePath();
-        if (!Files.exists(fp)) return false;
-        try {
-            String json = new String(Files.readAllBytes(fp), StandardCharsets.UTF_8);
-            Map<String, Object> state = mapper.readValue(json, Map.class);
+    public synchronized boolean loadTask(String taskId) {
+        Map<String, Object> task = taskStore.loadTask(taskId);
+        if (task == null) return false;
 
-            novelText = str(state.get("novelText"), "");
-            novelTitle = str(state.get("novelTitle"), "");
-            segmentCount = intVal(state.get("segmentCount"), config.getDefaultSegments());
-            currentStep = intVal(state.get("currentStep"), -1);
-            segments = list(state.get("segments"));
-            characters = mapList(state.get("characters"));
-            characterTurnarounds = mapList(state.get("characterTurnarounds"));
-            storyboards = list(state.get("storyboards"));
-            renamedText = str(state.get("renamedText"), "");
-            nameMapping = mapList(state.get("nameMapping"));
-            renamedSegments = list(state.get("renamedSegments"));
-            finalPrompts = objList(state.get("finalPrompts"));
-            lastPagePrompt = mapVal(state.get("lastPagePrompt"));
+        currentTaskId = taskId;
+        novelTitle = str(task.get("title"), "未命名作品");
+        novelText = str(task.get("novelText"), "");
+        segmentCount = intVal(task.get("segmentCount"), config.getDefaultSegments());
+        currentStep = intVal(task.get("currentStep"), -1);
 
-            // Restore steps
-            List<Map<String, Object>> savedSteps = objList(state.get("steps"));
-            if (savedSteps != null && savedSteps.size() == steps.size()) {
-                for (int i = 0; i < steps.size(); i++) {
-                    Map<String, Object> saved = savedSteps.get(i);
-                    steps.get(i).status = str(saved.get("status"), "pending");
-                    steps.get(i).error = str(saved.get("error"), null);
-                    steps.get(i).result = mapVal(saved.get("result"));
-                    String st = str(saved.get("streamText"), "");
-                    if (st != null && !st.isEmpty()) {
-                        sseService.appendStreamText(i, st);
+        // Load step data from individual tables
+        segments = taskStore.loadSplitSegments(taskId);
+        characters = taskStore.loadCharacters(taskId);
+        characterTurnarounds = taskStore.loadTurnarounds(taskId);
+        storyboards = taskStore.loadStoryboards(taskId);
+        nameMapping = taskStore.loadNameMappings(taskId);
+        finalPrompts = taskStore.loadPrompts(taskId);
+
+        Map<String, Object> lp = taskStore.loadLastPage(taskId);
+        lastPagePrompt = lp;
+
+        // Rebuild renamedText and renamedSegments from loaded data
+        if (!nameMapping.isEmpty()) {
+            StringBuilder rt = new StringBuilder();
+            for (Map<String, String> m : nameMapping) {
+                rt.append(m.get("from")).append(" | ").append(m.get("to")).append("\n");
+            }
+            renamedText = rt.toString();
+
+            if (!segments.isEmpty()) {
+                List<String> rs = new ArrayList<>();
+                for (String seg : segments) {
+                    String r = seg;
+                    for (Map<String, String> mp : nameMapping) {
+                        String from = mp.get("from");
+                        String to = mp.get("to");
+                        if (from != null && to != null && !from.equals(to)) {
+                            r = r.replaceAll(java.util.regex.Pattern.quote(from), to);
+                        }
                     }
+                    rs.add(r);
+                }
+                renamedSegments = rs;
+            }
+        }
+
+        // Restore step statuses
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> savedSteps =
+                (List<Map<String, Object>>) task.get("steps");
+        if (savedSteps != null) {
+            for (Map<String, Object> saved : savedSteps) {
+                int idx = intVal(saved.get("index"), -1);
+                if (idx < 0 || idx >= steps.size()) continue;
+                steps.get(idx).status = str(saved.get("status"), "pending");
+                steps.get(idx).error = str(saved.get("error"), null);
+                steps.get(idx).result = mapVal(saved.get("result"));
+                String st = str(saved.get("streamText"), "");
+                if (st != null && !st.isEmpty()) {
+                    sseService.clearStreamText(idx);
+                    sseService.appendStreamText(idx, st);
                 }
             }
-            log.info("📂 已恢复上次任务: \"{}\"", novelTitle);
-            return true;
-        } catch (Exception e) {
-            log.error("Failed to load pipeline state: {}", e.getMessage());
-            return false;
+        }
+        log.info("Restored task [{}] \"{}\" — segments={}, chars={}, turnarounds={}, storyboards={}, mappings={}, prompts={}, lastpage={}",
+                taskId, novelTitle,
+                segments.size(), characters.size(), characterTurnarounds.size(),
+                storyboards.size(), nameMapping.size(), finalPrompts.size(),
+                lastPagePrompt != null);
+        return true;
+    }
+
+    /**
+     * Auto-load the most recently active project on startup.
+     */
+    public synchronized void loadLatestTask() {
+        Map<String, Object> task = taskStore.loadLatestTask();
+        if (task != null) {
+            String taskId = (String) task.get("id");
+            loadTask(taskId);
         }
     }
 
-    public void clearStateFile() {
-        try { Files.deleteIfExists(config.getStateFilePath()); } catch (Exception ignored) {}
+    /**
+     * Delete the current project from the database and reset in-memory state.
+     */
+    public synchronized void clearStateFile() {
+        if (currentTaskId != null) {
+            taskStore.deleteTask(currentTaskId);
+        }
+        resetPipeline();
     }
 
     // ─── Getters ─────────────────────────────────────────────────────
@@ -206,21 +251,59 @@ public class PipelineService {
     public int getNovelLength() { return novelText.length(); }
     public int getSegmentCount() { return segmentCount; }
     public int getCurrentStep() { return currentStep; }
+    public String getCurrentTaskId() { return currentTaskId; }
+
+    // ── Shared state accessors (for step strategies) ──────────────
+
+    public String getNovelText() { return novelText; }
+    public List<String> getSegments() { return segments; }
+    public void setSegments(List<String> v) { this.segments = v; }
+    public List<Map<String, String>> getCharacters() { return characters; }
+    public void setCharacters(List<Map<String, String>> v) { this.characters = v; }
+    public List<Map<String, String>> getCharacterTurnarounds() { return characterTurnarounds; }
+    public void setCharacterTurnarounds(List<Map<String, String>> v) { this.characterTurnarounds = v; }
+    public List<String> getStoryboards() { return storyboards; }
+    public void setStoryboards(List<String> v) { this.storyboards = v; }
+    public List<Map<String, String>> getNameMapping() { return nameMapping; }
+    public void setNameMapping(List<Map<String, String>> v) { this.nameMapping = v; }
+    public String getRenamedText() { return renamedText; }
+    public void setRenamedText(String v) { this.renamedText = v; }
+    public List<String> getRenamedSegments() { return renamedSegments; }
+    public void setRenamedSegments(List<String> v) { this.renamedSegments = v; }
+    public List<Map<String, Object>> getFinalPrompts() { return finalPrompts; }
+    public void setFinalPrompts(List<Map<String, Object>> v) { this.finalPrompts = v; }
+    public Map<String, Object> getLastPagePrompt() { return lastPagePrompt; }
+    public void setLastPagePrompt(Map<String, Object> v) { this.lastPagePrompt = v; }
+    public void setSegmentCount(int v) { this.segmentCount = v; }
+
+    // ── Package-private mutators for step strategy framework ──────
+
+    void setCurrentStep(int v) { currentStep = v; }
+    Set<Integer> runningSet() { return running; }
+    void saveStateInternal() { saveState(); }
+    void emitInternal(int idx, String event, Object data) { emit(idx, event, data); }
 
     // ─── Public API ──────────────────────────────────────────────────
 
     public Map<String, Object> init(String text, int segCount, String title) {
         int count = Math.max(1, Math.min(segCount, config.getMaxSegments()));
+        // If there's already a task loaded with the same text, don't create a new one
+        // Otherwise, always create a fresh project in the database
         resetPipeline();
         novelText = text.trim();
         novelTitle = title != null && !title.isEmpty() ? title : "未命名作品";
         segmentCount = count;
+
+        // Create project in SQLite
+        currentTaskId = taskStore.createTask(novelTitle, novelText, segmentCount, STEP_DEFS);
+
         int chars = novelText.length();
         int estMax = chars / 20;
         saveState();
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("success", true);
+        resp.put("taskId", currentTaskId);
         resp.put("segmentCount", count);
         resp.put("novelLength", chars);
         resp.put("title", novelTitle);
@@ -279,458 +362,35 @@ public class PipelineService {
         sseService.clearStreamText(stepIndex);
         currentStep = stepIndex;
 
-        emit(stepIndex, "status", com.novel.comic.util.Maps.of("status", "running", "step", stepIndex, "name", step.name));
+        emit(stepIndex, "status", com.novel.comic.util.Maps.of(
+                "status", "running", "step", stepIndex, "name", step.name));
 
         try {
-            switch (step.id) {
-                case "split": doSplit(stepIndex); break;
-                case "characters": doCharacters(stepIndex); break;
-                case "turnaround": doTurnaround(stepIndex); break;
-                case "storyboard": doStoryboard(stepIndex); break;
-                case "rename": doRename(stepIndex); break;
-                case "prompts": doPrompts(stepIndex); break;
-                case "lastpage": doLastPage(stepIndex); break;
-            }
+            StepContext ctx = new StepContext(this, stepIndex,
+                    aiService, sseService, config, mapper);
+            strategyRegistry.resolve(step.id).execute(ctx);
+
             step.status = "done";
             saveState();
-            emit(stepIndex, "done", com.novel.comic.util.Maps.of("step", stepIndex, "result", (Object) (step.result != null ? step.result : new HashMap<>())));
+            emit(stepIndex, "done", com.novel.comic.util.Maps.of(
+                    "step", stepIndex, "result",
+                    (Object) (step.result != null ? step.result : new HashMap<>())));
         } catch (Exception e) {
             step.status = "error";
             step.error = e.getMessage();
             saveState();
-            emit(stepIndex, "error", com.novel.comic.util.Maps.of("step", stepIndex, "message", e.getMessage()));
+            emit(stepIndex, "error", com.novel.comic.util.Maps.of(
+                    "step", stepIndex, "message", e.getMessage()));
             log.error("Step {} error: {}", step.id, e.getMessage(), e);
         } finally {
             running.remove(stepIndex);
         }
     }
 
-    // ─── Step: Split ────────────────────────────────────────────────
-
-    private void doSplit(int idx) throws Exception {
-        emit(idx, "progress", com.novel.comic.util.Maps.of("message", "AI 正在分析小说并拆分...", "done", 0, "total", 1));
-
-        String prompt = aiService.loadPrompt("split", com.novel.comic.util.Maps.of(
-                "SEGMENT_COUNT", String.valueOf(segmentCount),
-                "NOVEL_TEXT", novelText
-        ));
-
-        String raw = aiService.callAISmart(
-                "你是专业的漫画分镜导演。只输出拆分结果，每行一段，按编号输出，不要任何多余内容。",
-                prompt,
-                new AiService.StreamCallback() {
-                    @Override public void onChunk(String text) {
-                        emit(idx, "chunk", com.novel.comic.util.Maps.of("text", text));
-                        sseService.appendStreamText(idx, text);
-                    }
-                    @Override public void onChunk(String text, int index) { onChunk(text); }
-                    @Override public void onStatus(String message) { emit(idx, "status", com.novel.comic.util.Maps.of("message", message)); }
-                    @Override public void onProgress(String message, int done, int total) {}
-                },
-                false, 16000, 0.3
-        );
-
-        List<String> segs = new ArrayList<>();
-        Pattern p = Pattern.compile("^\\d+[\\.\\、\\)）]\\s*(.+)");
-        for (String line : raw.split("\n")) {
-            line = line.trim();
-            if (line.isEmpty()) continue;
-            Matcher m = p.matcher(line);
-            segs.add(m.find() ? m.group(1).trim() : line);
-        }
-        segments = segs.isEmpty() ? Arrays.asList(raw.split("\n")) : segs;
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("type", "segments");
-        result.put("count", segments.size());
-        result.put("segments", segments);
-        steps.get(idx).result = result;
-        emit(idx, "result", result);
-        saveOutputFile("split", com.novel.comic.util.Maps.of("segments", segments));
-    }
-
-    // ─── Step: Characters ───────────────────────────────────────────
-
-    private void doCharacters(int idx) throws Exception {
-        emit(idx, "progress", com.novel.comic.util.Maps.of("message", "AI 正在提取角色...", "done", 0, "total", 1));
-
-        String prompt = aiService.loadPrompt("character-extract", com.novel.comic.util.Maps.of("NOVEL_TEXT", novelText));
-        String raw = aiService.callAISmart(
-                "你是经验丰富的漫画人物设计大师。只输出角色信息，格式：角色名：描述。",
-                prompt,
-                new AiService.StreamCallback() {
-                    @Override public void onChunk(String text) {
-                        emit(idx, "chunk", com.novel.comic.util.Maps.of("text", text));
-                        sseService.appendStreamText(idx, text);
-                    }
-                    @Override public void onChunk(String text, int index) { onChunk(text); }
-                    @Override public void onStatus(String message) { emit(idx, "status", com.novel.comic.util.Maps.of("message", message)); }
-                    @Override public void onProgress(String message, int done, int total) {}
-                },
-                false, 4096, 0.3
-        );
-
-        List<Map<String, String>> chars = new ArrayList<>();
-        Pattern p = Pattern.compile("^(.+?)[：:]\\s*(.+)");
-        for (String line : raw.split("\n")) {
-            line = line.trim();
-            if (line.isEmpty()) continue;
-            Matcher m = p.matcher(line);
-            if (m.find()) {
-                chars.add(com.novel.comic.util.Maps.of("name", m.group(1).trim(), "description", m.group(2).trim()));
-            }
-        }
-        characters = chars;
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("type", "characters");
-        result.put("count", characters.size());
-        result.put("characters", characters);
-        steps.get(idx).result = result;
-        emit(idx, "result", result);
-        saveOutputFile("characters", com.novel.comic.util.Maps.of("characters", characters));
-    }
-
-    // ─── Step: Turnaround ───────────────────────────────────────────
-
-    private void doTurnaround(int idx) throws Exception {
-        if (characters.isEmpty()) throw new RuntimeException("请先执行角色提取");
-
-        StringBuilder charList = new StringBuilder();
-        for (Map<String, String> c : characters) {
-            charList.append("**").append(c.get("name")).append("**：").append(c.get("description")).append("\n");
-        }
-
-        emit(idx, "progress", com.novel.comic.util.Maps.of("message", "AI 正在生成角色三视图...", "done", 0, "total", 1));
-
-        String prompt = aiService.loadPrompt("character-turnaround", com.novel.comic.util.Maps.of("CHARACTER_LIST", charList.toString()));
-        String raw = aiService.callAISmart(
-                "你是Q版火柴人漫画角色设计师。为每个角色生成三视图prompt，用===分隔。",
-                prompt,
-                new AiService.StreamCallback() {
-                    @Override public void onChunk(String text) {
-                        emit(idx, "chunk", com.novel.comic.util.Maps.of("text", text));
-                        sseService.appendStreamText(idx, text);
-                    }
-                    @Override public void onChunk(String text, int index) { onChunk(text); }
-                    @Override public void onStatus(String message) { emit(idx, "status", com.novel.comic.util.Maps.of("message", message)); }
-                    @Override public void onProgress(String message, int done, int total) {}
-                },
-                false, 4096, 0.7
-        );
-
-        List<Map<String, String>> turnarounds = new ArrayList<>();
-        String[] sections = raw.split("===+\\s*");
-        for (String section : sections) {
-            section = section.trim();
-            if (section.isEmpty()) continue;
-            String[] lines = section.split("\n");
-            String name = lines[0].trim().replaceAll("[：:]", "").trim();
-            String body = String.join("\n", Arrays.copyOfRange(lines, 1, lines.length)).trim();
-            if (name.isEmpty() || body.isEmpty()) continue;
-
-            Map<String, String> ta = new LinkedHashMap<>();
-            ta.put("name", name);
-            ta.put("frontPrompt", extractView(body, "【正面视图[^】]*】"));
-            ta.put("backPrompt", extractView(body, "【背面视图[^】]*】"));
-            ta.put("sidePrompt", extractView(body, "【侧面视图[^】]*】"));
-            String combo = extractView(body, "【综合三视图[^】]*】");
-            ta.put("comboPrompt", combo.isEmpty() ? body : combo);
-            ta.put("raw", body);
-            turnarounds.add(ta);
-        }
-        characterTurnarounds = turnarounds;
-
-        List<String> charNames = new ArrayList<>();
-        for (Map<String, String> c : characters) charNames.add(c.get("name"));
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("type", "turnarounds");
-        result.put("count", turnarounds.size());
-        result.put("characters", charNames);
-        result.put("turnarounds", turnarounds);
-        steps.get(idx).result = result;
-        emit(idx, "result", result);
-        saveOutputFile("turnaround", com.novel.comic.util.Maps.of("turnarounds", turnarounds, "characters", characters));
-    }
-
-    private String extractView(String body, String labelPattern) {
-        Pattern p = Pattern.compile(labelPattern + "\\s*([\\s\\S]*?)(?=【|---|$)");
-        Matcher m = p.matcher(body);
-        return m.find() ? m.group(1).trim() : "";
-    }
-
-    // ─── Step: Storyboard ───────────────────────────────────────────
-
-    private void doStoryboard(int idx) throws Exception {
-        if (segments.isEmpty()) throw new RuntimeException("请先执行拆分");
-
-        StringBuilder charRefs = new StringBuilder();
-        if (!characters.isEmpty()) {
-            for (Map<String, String> c : characters) {
-                charRefs.append("- **").append(c.get("name")).append("**：").append(c.get("description"));
-                Map<String, String> ta = characterTurnarounds.stream()
-                        .filter(t -> t.get("name").equals(c.get("name"))).findFirst().orElse(null);
-                if (ta != null && ta.containsKey("comboPrompt") && !ta.get("comboPrompt").isEmpty()) {
-                    String cp = ta.get("comboPrompt");
-                    if (cp.length() > 200) cp = cp.substring(0, 200);
-                    charRefs.append("\n  三视图参考: ").append(cp);
-                }
-                charRefs.append("\n");
-            }
-        }
-        String charRefStr = charRefs.length() > 0 ? charRefs.toString() : "(无已提取角色)";
-
-        List<String> sbList = new ArrayList<>(Collections.nCopies(segments.size(), ""));
-        int[] doneCount = {0};
-        int total = segments.size();
-        emit(idx, "progress", com.novel.comic.util.Maps.of("message", "分镜处理 0/" + total, "done", 0, "total", total));
-
-        int concurrency = config.getConcurrency();
-        ExecutorService executor = Executors.newFixedThreadPool(concurrency);
-        List<Future<?>> futures = new ArrayList<>();
-
-        for (int i = 0; i < segments.size(); i++) {
-            final int segIdx = i;
-            final String charRefFinal = charRefStr;
-            futures.add(executor.submit(() -> {
-                try {
-                    String prompt = aiService.loadPrompt("storyboard", com.novel.comic.util.Maps.of(
-                            "SEGMENT_TEXT", segments.get(segIdx),
-                            "CHARACTER_REFS", charRefFinal
-                    ));
-                    String text = aiService.callAISmart(
-                            "你是专业的Q版漫画分镜导演。严格按照Q版火柴人风格创作分镜。",
-                            prompt,
-                            new AiService.StreamCallback() {
-                                @Override public void onChunk(String text) {
-                                    emit(idx, "chunk", com.novel.comic.util.Maps.of("text", text, "index", segIdx));
-                                    sseService.appendStreamText(idx, text);
-                                }
-                                @Override public void onChunk(String text, int index) { onChunk(text); }
-                                @Override public void onStatus(String message) { emit(idx, "status", com.novel.comic.util.Maps.of("message", message)); }
-                                @Override public void onProgress(String message, int done, int total) {}
-                            },
-                            false, 4096, 0.7
-                    );
-                    synchronized (sbList) { sbList.set(segIdx, text); }
-                } catch (Exception e) {
-                    synchronized (sbList) { sbList.set(segIdx, "[失败: " + e.getMessage() + "]"); }
-                }
-                synchronized (doneCount) {
-                    doneCount[0]++;
-                    emit(idx, "progress", com.novel.comic.util.Maps.of("message", "分镜 " + doneCount[0] + "/" + total, "done", doneCount[0], "total", total));
-                }
-            }));
-        }
-
-        for (Future<?> f : futures) {
-            try { f.get(600, TimeUnit.SECONDS); } catch (Exception ignored) {}
-        }
-        executor.shutdown();
-        storyboards = sbList;
-
-        long cnt = storyboards.stream().filter(s -> s != null && !s.startsWith("[失败")).count();
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("type", "storyboards");
-        result.put("count", (int) cnt);
-        result.put("total", total);
-        result.put("storyboards", storyboards);
-        steps.get(idx).result = result;
-        emit(idx, "result", result);
-        saveOutputFile("storyboard", com.novel.comic.util.Maps.of("storyboards", storyboards));
-    }
-
-    // ─── Step: Rename ───────────────────────────────────────────────
-
-    private void doRename(int idx) throws Exception {
-        String text = !segments.isEmpty() ? String.join("\n\n", segments) : novelText;
-        String prompt = aiService.loadPrompt("character-rename", com.novel.comic.util.Maps.of("NOVEL_TEXT", text));
-
-        emit(idx, "progress", com.novel.comic.util.Maps.of("message", "AI 正在替换角色名字...", "done", 0, "total", 1));
-
-        String raw = aiService.callAISmart(
-                "你是专业的文字编辑。替换角色名字，保留姓氏，修改名字。列出对照表。",
-                prompt,
-                new AiService.StreamCallback() {
-                    @Override public void onChunk(String text) {
-                        emit(idx, "chunk", com.novel.comic.util.Maps.of("text", text));
-                        sseService.appendStreamText(idx, text);
-                    }
-                    @Override public void onChunk(String text, int index) { onChunk(text); }
-                    @Override public void onStatus(String message) { emit(idx, "status", com.novel.comic.util.Maps.of("message", message)); }
-                    @Override public void onProgress(String message, int done, int total) {}
-                },
-                false, 16000, 0.3
-        );
-
-        // Parse mapping
-        List<Map<String, String>> mapping = new ArrayList<>();
-        for (String line : raw.split("\n")) {
-            line = line.trim();
-            if (line.contains("|")) {
-                String[] cells = line.split("\\|");
-                if (cells.length >= 2) {
-                    mapping.add(com.novel.comic.util.Maps.of("from", cells[0].trim(), "to", cells[1].trim()));
-                }
-            }
-        }
-        if (mapping.isEmpty()) {
-            Pattern arrow = Pattern.compile("(.+?)\\s*[→>]\\s*(.+)");
-            Matcher m = arrow.matcher(raw);
-            while (m.find()) {
-                mapping.add(com.novel.comic.util.Maps.of("from", m.group(1).trim(), "to", m.group(2).trim()));
-            }
-        }
-
-        nameMapping = mapping;
-        renamedText = raw;
-
-        if (!mapping.isEmpty() && !segments.isEmpty()) {
-            List<String> rs = new ArrayList<>();
-            for (String seg : segments) {
-                String r = seg;
-                for (Map<String, String> mp : mapping) {
-                    String from = mp.get("from");
-                    String to = mp.get("to");
-                    if (from != null && to != null && !from.equals(to)) {
-                        r = r.replaceAll(Pattern.quote(from), to);
-                    }
-                }
-                rs.add(r);
-            }
-            renamedSegments = rs;
-        } else {
-            renamedSegments = new ArrayList<>(segments);
-        }
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("type", "rename");
-        result.put("mapping", mapping);
-        result.put("renamedSegments", renamedSegments);
-        result.put("preview", raw.length() > 2000 ? raw.substring(0, 2000) : raw);
-        steps.get(idx).result = result;
-        emit(idx, "result", result);
-        saveOutputFile("rename", com.novel.comic.util.Maps.of("mapping", mapping, "renamedSegments", renamedSegments));
-    }
-
-    // ─── Step: Prompts ──────────────────────────────────────────────
-
-    private void doPrompts(int idx) throws Exception {
-        String prefix = aiService.loadPrompt("prefix", null);
-        String suffix = aiService.loadPrompt("suffix", null);
-
-        StringBuilder charRefBlock = new StringBuilder();
-        if (!characterTurnarounds.isEmpty()) {
-            charRefBlock.append("\n\n【角色垫图参考】\n");
-            for (Map<String, String> ta : characterTurnarounds) {
-                String combo = ta.get("comboPrompt");
-                if (combo != null && !combo.isEmpty()) {
-                    if (combo.length() > 300) combo = combo.substring(0, 300);
-                    charRefBlock.append(ta.get("name")).append(": ").append(combo).append("\n");
-                }
-            }
-        }
-
-        List<String> segs = !renamedSegments.isEmpty() ? renamedSegments : segments;
-        int total = Math.max(segs.size(), storyboards.size());
-        List<Map<String, Object>> prompts = new ArrayList<>();
-
-        emit(idx, "progress", com.novel.comic.util.Maps.of("message", "组装 0/" + total, "done", 0, "total", total));
-        for (int i = 0; i < total; i++) {
-            String sb = i < storyboards.size() ? storyboards.get(i) : "";
-            String fp = prefix + charRefBlock + "\n\n" + (sb != null ? sb : "") + "\n\n" + suffix;
-
-            Map<String, Object> promptEntry = new LinkedHashMap<>();
-            promptEntry.put("index", i + 1);
-            promptEntry.put("segment", i < segs.size() ? segs.get(i) : "");
-            promptEntry.put("storyboard", sb);
-            promptEntry.put("prefix", prefix);
-            promptEntry.put("suffix", suffix);
-            promptEntry.put("charRefBlock", charRefBlock.toString());
-            promptEntry.put("fullPrompt", fp);
-            prompts.add(promptEntry);
-
-            emit(idx, "progress", com.novel.comic.util.Maps.of("message", "组装 " + (i + 1) + "/" + total, "done", i + 1, "total", total));
-        }
-
-        finalPrompts = prompts;
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("type", "prompts");
-        result.put("count", prompts.size());
-        result.put("prompts", prompts);
-        steps.get(idx).result = result;
-        emit(idx, "result", result);
-        saveOutputFile("prompts", com.novel.comic.util.Maps.of("prompts", prompts));
-    }
-
-    // ─── Step: Last Page ────────────────────────────────────────────
-
-    private void doLastPage(int idx) throws Exception {
-        String primaryChar = "主角";
-        if (!characters.isEmpty()) {
-            String firstName = characters.get(0).get("name");
-            for (Map<String, String> mp : nameMapping) {
-                if (firstName != null && firstName.contains(mp.get("from"))) {
-                    primaryChar = mp.get("to");
-                    break;
-                }
-            }
-            if (primaryChar.equals("主角")) primaryChar = firstName;
-        }
-
-        String title = novelTitle.isEmpty() ? "未命名作品" : novelTitle;
-        String prompt = aiService.loadPrompt("last-page", com.novel.comic.util.Maps.of(
-                "TITLE", title, "CHARACTER_NAME", primaryChar
-        ));
-
-        emit(idx, "progress", com.novel.comic.util.Maps.of("message", "正在生成末张引流...", "done", 0, "total", 1));
-
-        String raw = aiService.callAISmart(
-                "你是专业的漫画末页引流策划师。",
-                prompt,
-                new AiService.StreamCallback() {
-                    @Override public void onChunk(String text) {
-                        emit(idx, "chunk", com.novel.comic.util.Maps.of("text", text));
-                        sseService.appendStreamText(idx, text);
-                    }
-                    @Override public void onChunk(String text, int index) { onChunk(text); }
-                    @Override public void onStatus(String message) { emit(idx, "status", com.novel.comic.util.Maps.of("message", message)); }
-                    @Override public void onProgress(String message, int done, int total) {}
-                },
-                false, 2048, 0.7
-        );
-
-        Map<String, Object> lp = new LinkedHashMap<>();
-        lp.put("characterName", primaryChar);
-        lp.put("title", title);
-        lp.put("prompt", raw);
-        lastPagePrompt = lp;
-
-        Map<String, Object> result = new LinkedHashMap<>(lp);
-        result.put("type", "lastpage");
-        steps.get(idx).result = result;
-        emit(idx, "result", result);
-        saveOutputFile("lastpage", lp);
-    }
-
     // ─── Helpers ─────────────────────────────────────────────────────
 
     private void emit(int stepIndex, String event, Object data) {
         sseService.broadcast(stepIndex, event, data);
-    }
-
-    private void saveOutputFile(String name, Object data) {
-        try {
-            Path outputDir = config.getOutputPath();
-            if (!Files.exists(outputDir)) Files.createDirectories(outputDir);
-            String ts = Instant.now().toString().replace(":", "-").replace(".", "-");
-            String fname = (novelTitle.isEmpty() ? "output" : novelTitle) + "_" + name + "_" + ts + ".json";
-            Path fp = outputDir.resolve(fname);
-            Files.write(fp, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(data).getBytes(StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            log.error("Save failed: {}", e.getMessage());
-        }
     }
 
     public Map<String, Object> buildDownloadData() {
@@ -751,6 +411,7 @@ public class PipelineService {
 
     public Map<String, Object> buildStateResponse() {
         Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("taskId", currentTaskId);
         resp.put("hasState", !novelText.isEmpty());
         resp.put("title", novelTitle);
         resp.put("segmentCount", segmentCount);
@@ -770,6 +431,7 @@ public class PipelineService {
 
     public Map<String, Object> buildStatusResponse() {
         Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("taskId", currentTaskId);
         resp.put("currentStep", currentStep);
         resp.put("segmentCount", segmentCount);
         resp.put("novelLength", novelText.length());

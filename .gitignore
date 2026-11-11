@@ -9,6 +9,9 @@ build/
 
 # Runtime state
 pipeline_state.json
+pipeline.db
+pipeline.db-shm
+pipeline.db-wal
 outputs/
 
 # Local config (contains secrets)

@@ -12,7 +12,32 @@
     <header class="header">
       <h1>🎬 小说转Q版火柴人漫画</h1>
       <span class="version">v4.0</span>
+      <div class="header-actions">
+        <button class="btn btn-sm btn-header" id="btnProjects">📂 项目管理</button>
+      </div>
     </header>
+
+    <!-- Project List Overlay -->
+    <div class="overlay" id="projectOverlay" style="display:none;">
+      <div class="overlay-backdrop" id="overlayBackdrop"></div>
+      <div class="overlay-panel project-panel">
+        <div class="overlay-header">
+          <h2>📂 项目管理</h2>
+          <button class="btn btn-xs btn-outline" id="btnCloseProjects">✕ 关闭</button>
+        </div>
+        <div class="project-toolbar">
+          <div class="project-filter">
+            <button class="filter-btn active" data-filter="all">全部</button>
+            <button class="filter-btn" data-filter="active">进行中</button>
+            <button class="filter-btn" data-filter="done">已完成</button>
+          </div>
+          <div class="project-count" id="projectCount"></div>
+        </div>
+        <div class="project-list" id="projectList">
+          <div class="project-empty">加载中...</div>
+        </div>
+      </div>
+    </div>
 
     <!-- Restore Banner -->
     <div class="restore-banner" id="bannerRestore" style="display:none;">

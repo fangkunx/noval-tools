@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.novel.comic.config.AppConfig;
 import com.novel.comic.service.PipelineService;
 import com.novel.comic.service.SseService;
+import com.novel.comic.service.TaskStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -16,8 +17,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 
 @RestController
@@ -28,13 +27,16 @@ public class PipelineController {
 
     private final PipelineService pipelineService;
     private final SseService sseService;
+    private final TaskStore taskStore;
     private final AppConfig.PipelineConfig config;
     private final ObjectMapper mapper;
 
     public PipelineController(PipelineService pipelineService, SseService sseService,
+                              TaskStore taskStore,
                               AppConfig.PipelineConfig config, ObjectMapper mapper) {
         this.pipelineService = pipelineService;
         this.sseService = sseService;
+        this.taskStore = taskStore;
         this.config = config;
         this.mapper = mapper;
     }
@@ -263,13 +265,44 @@ public class PipelineController {
         return ResponseEntity.ok(pipelineService.rerunFrom(stepIndex));
     }
 
+    // ─── Projects ────────────────────────────────────────────────────
+
+    @GetMapping("/projects")
+    public ResponseEntity<List<Map<String, Object>>> listProjects() {
+        return ResponseEntity.ok(taskStore.listProjects());
+    }
+
+    @PostMapping("/projects/{taskId}/load")
+    public ResponseEntity<Map<String, Object>> loadProject(@PathVariable String taskId) {
+        boolean ok = pipelineService.loadTask(taskId);
+        if (!ok) {
+            return ResponseEntity.status(404)
+                    .body(com.novel.comic.util.Maps.of("error", "项目不存在"));
+        }
+        return ResponseEntity.ok(pipelineService.buildStateResponse());
+    }
+
+    @DeleteMapping("/projects/{taskId}")
+    public ResponseEntity<Map<String, String>> deleteProject(@PathVariable String taskId) {
+        boolean ok = taskStore.deleteTask(taskId);
+        if (!ok) {
+            return ResponseEntity.status(404)
+                    .body(com.novel.comic.util.Maps.of("error", "项目不存在"));
+        }
+        // If we deleted the currently loaded project, reset
+        if (taskId.equals(pipelineService.getCurrentTaskId())) {
+            pipelineService.resetPipeline();
+            sseService.clearAll();
+        }
+        return ResponseEntity.ok(com.novel.comic.util.Maps.of("success", "true"));
+    }
+
     // ─── Reset ──────────────────────────────────────────────────────
 
     @PostMapping("/reset")
     public ResponseEntity<Map<String, String>> reset() {
-        pipelineService.resetPipeline();
-        sseService.clearAll();
         pipelineService.clearStateFile();
+        sseService.clearAll();
         return ResponseEntity.ok(com.novel.comic.util.Maps.of("success", "true"));
     }
 }

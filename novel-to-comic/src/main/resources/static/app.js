@@ -690,4 +690,342 @@ function escAttr(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'
 function fmtSize(b) { if(!b) return '0B'; return b<1024?b+'B':b<1048576?(b/1024).toFixed(1)+'KB':(b/1048576).toFixed(1)+'MB'; }
 
 updStart();
-console.log('🎬 v4.0 持久化 + 重跑 前端就绪');
+
+// ─── Project Management ─────────────────────────────────────────────
+let allProjects = [];
+let currentTaskId = null;
+let projectFilter = 'all';
+
+// Track current task ID from init/restore
+const origInit = S;
+const origRestore = restorePipeline;
+
+// Open/close overlay
+$('#btnProjects').onclick = () => { openProjects(); };
+$('#btnCloseProjects').onclick = () => closeProjects();
+$('#overlayBackdrop').onclick = () => closeProjects();
+
+function openProjects() {
+  $('#projectOverlay').style.display = 'flex';
+  loadProjects();
+}
+
+function closeProjects() {
+  $('#projectOverlay').style.display = 'none';
+}
+
+// Close overlay with Escape key
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('#projectOverlay').style.display !== 'none') {
+    closeProjects();
+  }
+});
+
+// Filter buttons
+$$('.filter-btn').forEach(btn => {
+  btn.onclick = () => {
+    $$('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    projectFilter = btn.dataset.filter;
+    renderProjects();
+  };
+});
+
+async function loadProjects() {
+  try {
+    const r = await fetch('/api/projects');
+    allProjects = await r.json();
+
+    // Get current task ID
+    try {
+      const sr = await fetch('/api/status');
+      const sd = await sr.json();
+      currentTaskId = sd.taskId;
+    } catch (_) {}
+
+    renderProjects();
+  } catch (e) {
+    $('#projectList').innerHTML = '<div class="project-empty">加载失败: ' + e.message + '</div>';
+  }
+}
+
+function renderProjects() {
+  let filtered = allProjects;
+
+  // Get current state info
+  const isAnyLoaded = S.init && S.steps.length > 0;
+
+  if (projectFilter === 'active') {
+    filtered = filtered.filter(p => p.status !== 'COMPLETED' && p.completedSteps < p.totalSteps);
+  } else if (projectFilter === 'done') {
+    filtered = filtered.filter(p => p.status === 'COMPLETED' || p.completedSteps === p.totalSteps);
+  }
+
+  $('#projectCount').textContent = `共 ${filtered.length} 个项目`;
+
+  if (filtered.length === 0) {
+    $('#projectList').innerHTML = '<div class="project-empty">📭 暂无项目<br><small>创建新任务后这里会显示</small></div>';
+    return;
+  }
+
+  $('#projectList').innerHTML = filtered.map(p => {
+    const pct = p.totalSteps > 0 ? Math.round(p.completedSteps / p.totalSteps * 100) : 0;
+    const allDone = p.status === 'COMPLETED' || p.completedSteps === p.totalSteps;
+    const isActive = currentTaskId === p.id;
+    const isLoaded = isAnyLoaded && isActive;
+
+    // Determine status badge
+    let statusText = '';
+    let statusColor = '';
+    if (allDone) {
+      statusText = '✅ 已完成';
+      statusColor = 'var(--success)';
+    } else if (p.completedSteps > 0) {
+      statusText = `⏳ ${p.completedSteps}/${p.totalSteps}`;
+      statusColor = 'var(--warning)';
+    } else {
+      statusText = '📝 待开始';
+      statusColor = 'var(--text-muted)';
+    }
+
+    // Action button
+    let actionBtn = '';
+    if (isLoaded) {
+      actionBtn = `<button class="btn btn-xs btn-outline" onclick="event.stopPropagation();continueCurrent()" title="继续执行当前任务">▶ 继续</button>`;
+    } else if (allDone) {
+      actionBtn = `<button class="btn btn-xs btn-outline" onclick="event.stopPropagation();loadAndView('${p.id}')" title="加载并查看结果">👁️ 查看</button>`;
+    } else {
+      actionBtn = `<button class="btn btn-xs btn-primary" onclick="event.stopPropagation();loadAndResume('${p.id}')" title="加载并继续执行">▶ 继续</button>`;
+    }
+
+    // Progress bar color
+    const barColor = allDone ? 'var(--success)' : 'var(--primary)';
+
+    return `
+      <div class="project-card ${allDone ? 'completed' : ''} ${isActive ? 'active-task' : ''}"
+           onclick="${isLoaded ? 'closeProjects()' : (allDone ? `loadAndView('${p.id}')` : `loadAndResume('${p.id}')`)}"
+           title="${isLoaded ? '已是当前任务' : '点击加载此项目'}">
+        <div class="pc-icon">${getStepIcon(p)}</div>
+        <div class="pc-body">
+          <div class="pc-title">${esc(p.title)}</div>
+          <div class="pc-meta">
+            <span>📏 ${fmtSize(p.novelLength)}</span>
+            <span>📐 ${p.segmentCount} 段</span>
+            <span style="color:${statusColor}">${statusText}</span>
+            <span>🕐 ${fmtDate(p.updatedAt)}</span>
+          </div>
+       </div>
+        <div class="pc-progress">
+          <div class="pc-progress-bar">
+            <div class="pc-progress-fill" style="width:${pct}%;background:${barColor}"></div>
+          </div>
+          <div class="pc-progress-text">${pct}%</div>
+        </div>
+        <div class="pc-actions">
+          ${actionBtn}
+          <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();deleteProject('${p.id}','${escAttr(p.title)}')" title="删除项目">🗑️</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function getStepIcon(p) {
+  if (p.completedSteps === p.totalSteps) return '🎉';
+  if (p.completedSteps > 0) return '🔄';
+  return '📄';
+}
+
+async function loadAndResume(taskId) {
+  closeProjects();
+  showLoading('正在加载项目...');
+  try {
+    const r = await fetch(`/api/projects/${taskId}/load`, { method: 'POST' });
+    if (!r.ok) {
+      const d = await r.json();
+      alert(d.error || '加载失败');
+      return;
+    }
+    const d = await r.json();
+    currentTaskId = taskId;
+    await applyLoadedState(d);
+  } catch (e) {
+    alert('加载失败: ' + e.message);
+  }
+}
+
+async function loadAndView(taskId) {
+  closeProjects();
+  showLoading('正在加载项目...');
+  try {
+    const r = await fetch(`/api/projects/${taskId}/load`, { method: 'POST' });
+    if (!r.ok) {
+      const d = await r.json();
+      alert(d.error || '加载失败');
+      return;
+    }
+    const d = await r.json();
+    currentTaskId = taskId;
+    await applyLoadedState(d);
+  } catch (e) {
+    alert('加载失败: ' + e.message);
+  }
+}
+
+async function applyLoadedState(d) {
+  // Reset current state
+  S.busy = false;
+  if (S.es) { S.es.close(); S.es = null; }
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+
+  S.init = d.hasState;
+  S.segCount = d.segmentCount;
+  S.title = d.title;
+  S.text = d.hasState ? '(已恢复)' : '';
+
+  // Refresh step status
+  const sr = await fetch('/api/status');
+  const sd = await sr.json();
+  S.steps = sd.steps;
+  currentTaskId = sd.taskId;
+
+  // Show result panel
+  $('#panelInput').style.display = 'none';
+  $('#panelResult').style.display = 'block';
+  $('#bannerRestore').style.display = 'none';
+  renderSteps();
+  updateBtns();
+
+  const completedSteps = S.steps.filter(s => s.status === 'done');
+  const allDone = completedSteps.length === S.steps.length;
+  const nextIdx = S.steps.findIndex(s => s.status !== 'done');
+
+  if (allDone) {
+    $('#resultTitle').textContent = '📋 ' + d.title;
+    $('#resultStatus').textContent = '✅ 全部完成';
+    $('#resultStatus').className = 'badge success';
+    $('#btnContinue').style.display = 'none';
+    $('#resultContent').innerHTML = '';
+
+    // Load all completed results
+    for (const s of completedSteps) {
+      try {
+        const rr = await fetch(`/api/results/${s.id}`);
+        if (rr.ok) {
+          const result = await rr.json();
+          S.steps[s.index].result = result;
+          showResult(s.index, result);
+        }
+      } catch (_) {}
+    }
+
+    $('#resultContent').insertAdjacentHTML('beforeend', `
+      <div style="text-align:center;margin-top:24px;padding:24px;background:#f0fdf4;border-radius:12px;">
+        <div style="font-size:32px;">🎉</div>
+        <div style="font-size:18px;font-weight:700;color:#1a8a3f;">全部完成！</div>
+      </div>
+    `);
+  } else if (completedSteps.length > 0) {
+    $('#resultTitle').textContent = '📋 ' + d.title;
+    $('#resultStatus').textContent = `已完成 ${completedSteps.length}/${S.steps.length}`;
+    $('#resultStatus').className = 'badge success';
+    $('#resultContent').innerHTML = '';
+
+    for (const s of completedSteps) {
+      try {
+        const rr = await fetch(`/api/results/${s.id}`);
+        if (rr.ok) {
+          const result = await rr.json();
+          S.steps[s.index].result = result;
+          showResult(s.index, result);
+        }
+      } catch (_) {}
+    }
+
+    if (nextIdx >= 0) {
+      showNextStepInfo(nextIdx);
+      setupBtn(nextIdx);
+    }
+  } else if (nextIdx >= 0) {
+    // Init done but no steps completed
+    showReady({ novelLength: sd.novelLength, segmentCount: sd.segmentCount, estimatedMaxSegments: Math.floor(sd.novelLength / 20) });
+    setupBtn(nextIdx);
+  }
+}
+
+function continueCurrent() {
+  closeProjects();
+  // Find next pending step
+  const nextIdx = S.steps.findIndex(s => s.status === 'pending');
+  const firstErr = S.steps.findIndex(s => s.status === 'error');
+
+  if (firstErr >= 0 && (nextIdx < 0 || firstErr < nextIdx)) {
+    // There's an error — show retry
+    $('#resultContent').insertAdjacentHTML('beforeend', `
+      <div class="warning-box" style="margin-top:12px;background:#ffe5e5;border-color:#fecaca;color:#991b1b;">
+        步骤「${S.steps[firstErr].name}」失败，请重试
+      </div>
+      <div style="margin-top:12px;"><button class="btn btn-outline" onclick="retry(${firstErr})">🔄 重试</button></div>
+    `);
+    setupBtn(firstErr);
+  } else if (nextIdx >= 0) {
+    setupBtn(nextIdx);
+  }
+}
+
+async function deleteProject(taskId, title) {
+  if (!confirm(`确定删除项目「${title}」？\n此操作不可恢复！`)) return;
+  try {
+    const r = await fetch(`/api/projects/${taskId}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.success) { alert(d.error); return; }
+
+    // If we deleted the current project, reset UI
+    if (taskId === currentTaskId) {
+      S.text = ''; S.title = ''; S.segCount = 90; S.curIdx = -1; S.steps = []; S.init = false; S.busy = false;
+      if (S.es) { S.es.close(); S.es = null; }
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      $('#panelInput').style.display = 'block'; $('#panelResult').style.display = 'none';
+      $('#btnContinue').style.display = 'none'; $('#warningBox').style.display = 'none';
+      $('#bannerRestore').style.display = 'none';
+      $('#novelText').value = ''; $('#novelTitle').value = ''; $('#segmentCount').value = '90';
+      $('#stepList').innerHTML = '';
+      updateBtns(); updStart();
+      currentTaskId = null;
+    }
+
+    // Reload project list
+    await loadProjects();
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
+}
+
+function showLoading(msg) {
+  $('#panelInput').style.display = 'none';
+  $('#panelResult').style.display = 'block';
+  $('#resultTitle').textContent = '⏳ 加载中';
+  $('#resultStatus').textContent = msg;
+  $('#resultStatus').className = 'badge running';
+  $('#resultContent').innerHTML = '<p style="text-align:center;padding:48px;color:var(--text-secondary);">🔄 ' + msg + '</p>';
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return Math.round(diff/60000) + '分钟前';
+    if (diff < 86400000) return Math.round(diff/3600000) + '小时前';
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    const h = String(d.getHours()).padStart(2,'0');
+    const min = String(d.getMinutes()).padStart(2,'0');
+    return `${y}-${m}-${day} ${h}:${min}`;
+  } catch (_) { return iso.slice(0,16); }
+}
+
+console.log('🎬 v5.0 持久化 + 多项目管理 前端就绪');

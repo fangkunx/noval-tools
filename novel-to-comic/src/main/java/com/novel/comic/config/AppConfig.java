@@ -25,19 +25,27 @@ public class AppConfig {
         return new ObjectMapper();
     }
 
+    @Value("${app.config-file:config.json}")
+    private String configFilePath;
+
     @Bean
     public PipelineConfig pipelineConfig() {
         PipelineConfig cfg = new PipelineConfig();
 
-        // Try loading from config.json (Node-compatible), fall back to defaults
+        // Load config from explicit path (set via application-dev.yml), fallback to classpath
         try {
-            // Check beside JAR/workdir first, then classpath
-            File localFile = new File("config.json");
+            File explicitFile = new File(configFilePath);
             InputStream is;
-            if (localFile.exists()) {
-                is = new FileInputStream(localFile);
+            if (explicitFile.exists()) {
+                is = new FileInputStream(explicitFile);
             } else {
-                is = new ClassPathResource("config.json").getInputStream();
+                // Fallback: look for config.json beside JAR/workdir, then classpath
+                File localFile = new File("config.json");
+                if (localFile.exists()) {
+                    is = new FileInputStream(localFile);
+                } else {
+                    is = new ClassPathResource("config.json").getInputStream();
+                }
             }
             JsonNode root = new ObjectMapper().readTree(is);
             is.close();

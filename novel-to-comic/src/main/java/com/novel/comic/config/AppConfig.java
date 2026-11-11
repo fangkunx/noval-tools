@@ -1,95 +1,23 @@
 package com.novel.comic.config;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.util.StringUtils;
 
-import javax.annotation.PostConstruct;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
+@EnableConfigurationProperties(AppConfig.PipelineConfig.class)
 public class AppConfig {
 
     @Bean
     public ObjectMapper objectMapper() {
         return new ObjectMapper();
-    }
-
-    @Value("${app.config-file:config.json}")
-    private String configFilePath;
-
-    @Bean
-    public PipelineConfig pipelineConfig() {
-        PipelineConfig cfg = new PipelineConfig();
-
-        // Load config from explicit path (set via application-dev.yml), fallback to classpath
-        try {
-            File explicitFile = new File(configFilePath);
-            InputStream is;
-            if (explicitFile.exists()) {
-                is = new FileInputStream(explicitFile);
-            } else {
-                // Fallback: look for config.json beside JAR/workdir, then classpath
-                File localFile = new File("config.json");
-                if (localFile.exists()) {
-                    is = new FileInputStream(localFile);
-                } else {
-                    is = new ClassPathResource("config.json").getInputStream();
-                }
-            }
-            JsonNode root = new ObjectMapper().readTree(is);
-            is.close();
-
-            JsonNode api = root.has("api") ? root.get("api") : (root.has("anthropic") ? root.get("anthropic") : null);
-            if (api != null) {
-                if (api.has("apiKey") && !api.get("apiKey").asText().isEmpty())
-                    cfg.apiKey = api.get("apiKey").asText();
-                if (api.has("baseUrl")) cfg.baseUrl = api.get("baseUrl").asText();
-                if (api.has("model")) cfg.model = api.get("model").asText();
-                if (api.has("maxTokens")) cfg.maxTokens = api.get("maxTokens").asInt();
-                if (api.has("temperature")) cfg.temperature = api.get("temperature").asDouble();
-                if (api.has("concurrency")) cfg.concurrency = api.get("concurrency").asInt();
-            }
-            if (root.has("server")) {
-                JsonNode srv = root.get("server");
-                if (srv.has("port")) cfg.port = srv.get("port").asInt();
-                if (srv.has("host")) cfg.host = srv.get("host").asText();
-            }
-            if (root.has("pipeline")) {
-                JsonNode pl = root.get("pipeline");
-                if (pl.has("maxSegments")) cfg.maxSegments = pl.get("maxSegments").asInt();
-                if (pl.has("defaultSegments")) cfg.defaultSegments = pl.get("defaultSegments").asInt();
-            }
-            if (root.has("output") && root.get("output").has("dir")) {
-                cfg.outputDir = root.get("output").get("dir").asText();
-            }
-        } catch (Exception e) {
-            System.out.println("[CONFIG] config.json 未找到，使用默认配置");
-        }
-
-        // Environment overrides
-        String envKey = System.getenv("ANTHROPIC_AUTH_TOKEN");
-        if (envKey == null) envKey = System.getenv("AI_API_KEY");
-        if (envKey == null) envKey = System.getenv("ANTHROPIC_API_KEY");
-        if (StringUtils.hasText(envKey)) cfg.apiKey = envKey;
-
-        String envUrl = System.getenv("ANTHROPIC_BASE_URL");
-        if (StringUtils.hasText(envUrl)) cfg.baseUrl = envUrl;
-
-        String envModel = System.getenv("ANTHROPIC_MODEL");
-        if (StringUtils.hasText(envModel)) cfg.model = envModel;
-
-        return cfg;
     }
 
     @ConfigurationProperties(prefix = "app")
@@ -104,7 +32,9 @@ public class AppConfig {
         private String host = "localhost";
         private int maxSegments = 140;
         private int defaultSegments = 90;
+        private int minSegmentChars = 50;
         private String outputDir = "./outputs";
+        private List<String> outputFormats = Arrays.asList("json", "txt");
 
         public String getApiKey() { return apiKey; }
         public void setApiKey(String apiKey) { this.apiKey = apiKey; }
@@ -126,8 +56,12 @@ public class AppConfig {
         public void setMaxSegments(int maxSegments) { this.maxSegments = maxSegments; }
         public int getDefaultSegments() { return defaultSegments; }
         public void setDefaultSegments(int defaultSegments) { this.defaultSegments = defaultSegments; }
+        public int getMinSegmentChars() { return minSegmentChars; }
+        public void setMinSegmentChars(int minSegmentChars) { this.minSegmentChars = minSegmentChars; }
         public String getOutputDir() { return outputDir; }
         public void setOutputDir(String outputDir) { this.outputDir = outputDir; }
+        public List<String> getOutputFormats() { return outputFormats; }
+        public void setOutputFormats(List<String> outputFormats) { this.outputFormats = outputFormats; }
 
         public Path getOutputPath() {
             Path p = Paths.get(outputDir);

@@ -13,7 +13,9 @@ outputs/
 
 # Local config (contains secrets)
 application-local.yml
+application-dev.yml
 *-local.yml
+*-dev.yml
 
 # OS
 .DS_Store

@@ -8,28 +8,11 @@ server:
       force: true
 
 spring:
+  profiles:
+    active: dev
   servlet:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
   jackson:
     default-property-inclusion: non_null
-
-# Custom config (mirrors original config.json)
-app:
-  api:
-    api-key: ""
-    base-url: "https://api.anthropic.com"
-    model: "claude-sonnet-5-5"
-    max-tokens: 4096
-    temperature: 0.7
-    concurrency: 3
-  pipeline:
-    max-segments: 140
-    default-segments: 90
-    min-segment-chars: 50
-  output:
-    dir: "./outputs"
-    formats:
-      - json
-      - txt

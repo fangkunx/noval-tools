@@ -21,6 +21,7 @@
     <modules>
         <module>txt2img</module>
         <module>novel-to-comic</module>
+        <module>gateway</module>
     </modules>
 
     <properties>

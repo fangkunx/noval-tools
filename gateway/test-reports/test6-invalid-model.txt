@@ -1,0 +1,2 @@
+{"error":{"message":"Model not found: non-existing-model","type":"chat_error","code":null}}
+HTTP_CODE:400

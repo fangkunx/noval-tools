@@ -1,0 +1,2 @@
+{"id":"deepseek-chat","object":"model","created":1794663032,"owned_by":"deepseek","name":"DeepSeek Chat","capabilities":["CHAT","VISION"]}
+HTTP_CODE:200

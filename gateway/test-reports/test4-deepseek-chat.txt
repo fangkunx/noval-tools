@@ -1,0 +1,2 @@
+{"id":"39029ef0-729c-4399-abf5-075615af5a36","object":"chat.completion","created":1794662999,"model":"deepseek-chat","choices":[{"index":0,"message":{"role":"assistant","content":"Hi there, it's great to meet you!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":10,"total_tokens":21},"error":null}
+HTTP_CODE:200

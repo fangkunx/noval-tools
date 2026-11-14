@@ -1,0 +1,2 @@
+{"error":{"message":"403 Forbidden: \"{<EOL>  \"error\": {<EOL>    \"type\": \"forbidden\",<EOL>    \"message\": \"Request not allowed\"<EOL>  }<EOL>}\"","type":"chat_error","code":null}}
+HTTP_CODE:400

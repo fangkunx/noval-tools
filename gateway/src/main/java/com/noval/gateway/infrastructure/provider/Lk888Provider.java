@@ -62,7 +62,7 @@ public class Lk888Provider implements GatewayProvider {
 
     @Override
     public Set<Capability> getSupportedCapabilities() {
-        return EnumSet.of(Capability.IMAGE_GEN);
+        return EnumSet.of(Capability.IMAGE_GEN, Capability.IMAGE_COMPOSE);
     }
 
     @Override
@@ -233,6 +233,82 @@ public class Lk888Provider implements GatewayProvider {
     private void putIfPresent(ObjectNode node, String key, String val) {
         if (val != null && !val.isEmpty()) {
             node.put(key, val);
+        }
+    }
+
+    @Override
+    public ImageGenResult imageCompose(ImageComposeCommand command, String modelName) {
+        long startTime = System.currentTimeMillis();
+
+        try {
+            ObjectNode body = mapper.createObjectNode();
+            body.put("model", defaultIfEmpty(command.getModel(), "tt-image-2.5"));
+            body.put("prompt", command.getPrompt());
+            body.put("aspect_ratio", defaultIfEmpty(command.getAspectRatio(), "3:4"));
+            body.put("resolution", defaultIfEmpty(command.getResolution(), "2K"));
+
+            // Add image_urls for composition
+            ArrayNode imageArray = mapper.createArrayNode();
+            for (String imageUrl : command.getImageUrls()) {
+                imageArray.add(imageUrl);
+            }
+            body.set("image_urls", imageArray);
+
+            body.put("quality", "auto");
+            body.put("output_format", "png");
+
+            String requestBody = mapper.writeValueAsString(body);
+
+            log.info("LK888 compose request: model={}, imageCount={}, bodyLength={}",
+                command.getModel(),
+                command.getImageUrls().size(),
+                requestBody.length());
+
+            // Log to LangSmith with request JSON
+            LangSmithRun run = requestLogger.logImageComposeRequestStart(PROVIDER_NAME, modelName, command, requestBody);
+
+            HttpHeaders headers = buildHeaders();
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+
+            ResponseEntity<String> resp = restTemplate.exchange(
+                    settings.getBaseUrl() + "/v1/media/generate",
+                    HttpMethod.POST,
+                    entity,
+                    String.class);
+
+            log.info("LK888 compose response: {}", resp.getBody());
+            JsonNode json = mapper.readTree(resp.getBody());
+            String taskId = json.path("data").path("task_id").asText();
+
+            if (taskId == null || taskId.isEmpty()) {
+                long duration = System.currentTimeMillis() - startTime;
+                String error = "Failed to get task_id from LK888. Response: " + resp.getBody();
+                requestLogger.logImageGenRequestError(PROVIDER_NAME, modelName, duration, error, run);
+                return ImageGenResult.builder()
+                        .error(error)
+                        .build();
+            }
+
+            // Poll for result (max 120 seconds for composition)
+            ImageGenResult result = pollTask(taskId, 120);
+            long duration = System.currentTimeMillis() - startTime;
+
+            if (result.isSuccess()) {
+                requestLogger.logImageComposeRequestSuccess(PROVIDER_NAME, modelName, duration, result.getUrls().size(), run);
+            } else {
+                requestLogger.logImageComposeRequestError(PROVIDER_NAME, modelName, duration, result.getError(), run);
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            long duration = System.currentTimeMillis() - startTime;
+            String error = "LK888 image composition failed: " + e.getMessage();
+            requestLogger.logImageComposeRequestError(PROVIDER_NAME, modelName, duration, error, null);
+            log.error("LK888 image composition error", e);
+            return ImageGenResult.builder()
+                    .error(error)
+                    .build();
         }
     }
 }

@@ -1,0 +1,21 @@
+# Data directory (database files)
+data/
+
+# Test scripts
+test-compose.sh
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+
+# Build output
+target/
+build/
+*.class

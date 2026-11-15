@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Orchestrates image generation requests.
+ * Orchestrates image generation and editing requests.
  */
 @Service
 public class ImageGenService {
@@ -39,6 +39,31 @@ public class ImageGenService {
             log.debug("Image gen with provider: {}, model: {}",
                     resolution.getProvider().getProviderType(), resolution.getModelName());
             return resolution.getProvider().imageGen(command, resolution.getModelName());
+        } catch (Exception e) {
+            log.error("Provider {} threw exception", resolution.getProvider().getProviderType(), e);
+            return ImageGenResult.builder().error(e.getMessage()).build();
+        }
+    }
+
+    /**
+     * Execute an image edit request (image-to-image).
+     */
+    public ImageGenResult edit(ImageEditCommand command) {
+        String modelHint = command.getModel();
+
+        // Resolve provider for the requested model
+        RouterService.ProviderResolution resolution;
+        try {
+            resolution = routerService.resolve(Capability.IMAGE_EDIT, modelHint);
+        } catch (Exception e) {
+            return ImageGenResult.builder().error(e.getMessage()).build();
+        }
+
+        // Execute request on the resolved provider
+        try {
+            log.debug("Image edit with provider: {}, model: {}",
+                    resolution.getProvider().getProviderType(), resolution.getModelName());
+            return resolution.getProvider().imageEdit(command, resolution.getModelName());
         } catch (Exception e) {
             log.error("Provider {} threw exception", resolution.getProvider().getProviderType(), e);
             return ImageGenResult.builder().error(e.getMessage()).build();

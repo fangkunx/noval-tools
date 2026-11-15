@@ -6,7 +6,9 @@ package com.noval.gateway.domain.model;
 public enum Capability {
     CHAT,
     VISION,
-    IMAGE_GEN;
+    IMAGE_GEN,
+    IMAGE_EDIT,
+    IMAGE_COMPOSE;
 
     public static Capability from(String name) {
         if (name == null) {

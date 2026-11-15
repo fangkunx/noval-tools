@@ -2,6 +2,7 @@ package com.noval.gateway.infrastructure.logging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noval.gateway.domain.model.ChatCommand;
+import com.noval.gateway.domain.model.ImageComposeCommand;
 import com.noval.gateway.domain.model.ImageGenCommand;
 import com.noval.gateway.infrastructure.tracing.langsmith.LangSmithClient;
 import com.noval.gateway.infrastructure.tracing.langsmith.LangSmithRun;
@@ -318,6 +319,150 @@ public class ProviderRequestLogger {
         sb.append(", error=").append(error);
 
         log.error(sb.toString());
+
+        // LangSmith trace
+        if (langSmithClient != null && langSmithClient.isEnabled() && run != null) {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("duration_ms", duration);
+            metadata.put("provider", provider);
+            metadata.put("model", model);
+
+            run.setEndTime(Instant.now().toString());
+            run.setError(error);
+            run.setExtra(metadata);
+
+            langSmithClient.sendRun(run);
+        }
+    }
+
+    /**
+     * 记录图像合成请求开始
+     */
+    public LangSmithRun logImageComposeRequestStart(String provider, String model, ImageComposeCommand command, String reqJson) {
+        String traceId = TraceContext.getTraceId();
+        String parentRunId = TraceContext.getParentRunId();
+
+        // 本地日志
+        if (log.isInfoEnabled()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("[Provider ImageCompose Start] ");
+            sb.append("provider=").append(provider);
+            sb.append(", model=").append(model);
+            sb.append(", prompt=").append(command.getPrompt());
+            sb.append(", imageCount=").append(command.getImageUrls().size());
+            sb.append(", aspectRatio=").append(command.getAspectRatio());
+            sb.append(", resolution=").append(command.getResolution());
+            sb.append(", traceId=").append(traceId);
+
+            if (logRequestBody && reqJson != null) {
+                sb.append(", reqJson=").append(reqJson);
+            }
+
+            log.info(sb.toString());
+        }
+
+        // LangSmith trace
+        LangSmithRun run = null;
+        if (langSmithClient != null && langSmithClient.isEnabled()) {
+            Map<String, Object> inputs = new HashMap<>();
+            inputs.put("provider", provider);
+            inputs.put("model", model);
+            inputs.put("prompt", command.getPrompt());
+            inputs.put("imageUrls", command.getImageUrls());
+            inputs.put("aspectRatio", command.getAspectRatio());
+            inputs.put("resolution", command.getResolution());
+            if (reqJson != null) {
+                inputs.put("reqJson", reqJson);
+            }
+
+            UUID traceUuid = traceId != null ? UUID.fromString(traceId) : UUID.randomUUID();
+            UUID runId;
+
+            if (parentRunId == null) {
+                runId = traceUuid;
+            } else {
+                runId = UUID.fromString(TraceContext.newSpanId());
+            }
+
+            java.time.ZonedDateTime now = Instant.now().atZone(java.time.ZoneOffset.UTC);
+            String timestamp = String.format("%04d%02d%02dT%02d%02d%02d%06dZ",
+                    now.getYear(), now.getMonthValue(), now.getDayOfMonth(),
+                    now.getHour(), now.getMinute(), now.getSecond(),
+                    now.getNano() / 1000);
+            String dottedOrder = timestamp + runId.toString().replace("-", "");
+
+            run = LangSmithRun.builder()
+                    .id(runId)
+                    .traceId(traceUuid)
+                    .parentRunId(parentRunId != null ? UUID.fromString(parentRunId) : null)
+                    .name(provider + " ImageCompose")
+                    .runType("tool")
+                    .startTime(Instant.now().toString())
+                    .inputs(inputs)
+                    .sessionName(langSmithClient.getProjectName())
+                    .dottedOrder(dottedOrder)
+                    .build();
+        }
+
+        return run;
+    }
+
+    /**
+     * 记录图像合成请求成功
+     */
+    public void logImageComposeRequestSuccess(String provider, String model, long duration, int imageCount, LangSmithRun run) {
+        String traceId = TraceContext.getTraceId();
+
+        // 本地日志
+        if (log.isInfoEnabled()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("[Provider ImageCompose Success] ");
+            sb.append("provider=").append(provider);
+            sb.append(", model=").append(model);
+            sb.append(", duration=").append(duration).append("ms");
+            sb.append(", resultCount=").append(imageCount);
+            sb.append(", traceId=").append(traceId);
+
+            log.info(sb.toString());
+        }
+
+        // LangSmith trace
+        if (langSmithClient != null && langSmithClient.isEnabled() && run != null) {
+            Map<String, Object> outputs = new HashMap<>();
+            outputs.put("status", "success");
+            outputs.put("resultCount", imageCount);
+
+            Map<String, Object> extra = new HashMap<>();
+            extra.put("duration_ms", duration);
+            extra.put("provider", provider);
+            extra.put("model", model);
+
+            run.setEndTime(Instant.now().toString());
+            run.setOutputs(outputs);
+            run.setExtra(extra);
+
+            langSmithClient.sendRun(run);
+        }
+    }
+
+    /**
+     * 记录图像合成请求错误
+     */
+    public void logImageComposeRequestError(String provider, String model, long duration, String error, LangSmithRun run) {
+        String traceId = TraceContext.getTraceId();
+
+        // 本地日志
+        if (log.isErrorEnabled()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("[Provider ImageCompose Error] ");
+            sb.append("provider=").append(provider);
+            sb.append(", model=").append(model);
+            sb.append(", duration=").append(duration).append("ms");
+            sb.append(", error=").append(error);
+            sb.append(", traceId=").append(traceId);
+
+            log.error(sb.toString());
+        }
 
         // LangSmith trace
         if (langSmithClient != null && langSmithClient.isEnabled() && run != null) {

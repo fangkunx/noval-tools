@@ -1,19 +1,35 @@
 package com.noval.gateway.interfaces.rest.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * OpenAI-compatible chat completion response.
  */
+@Schema(description = "聊天补全响应 - 兼容 OpenAI 协议")
 public class ChatResponse {
 
+    @Schema(description = "响应唯一标识", example = "chatcmpl-abc123")
     private String id;
+
+    @Schema(description = "对象类型", example = "chat.completion")
     private String object = "chat.completion";
+
+    @Schema(description = "创建时间戳（Unix 秒）", example = "1700000000")
     private long created;
+
+    @Schema(description = "使用的模型", example = "gpt-4o")
     private String model;
+
+    @Schema(description = "响应选项列表")
     private List<Choice> choices = new ArrayList<>();
+
+    @Schema(description = "Token 使用统计")
     private Usage usage;
+
+    @Schema(description = "错误信息（如果有）")
     private String error;
 
     public static ChatResponse success(String id, String model, String content, String finishReason, Usage usage) {
@@ -85,9 +101,15 @@ public class ChatResponse {
         return error;
     }
 
+    @Schema(description = "响应选项")
     public static class Choice {
+        @Schema(description = "选项索引", example = "0")
         private int index;
+
+        @Schema(description = "响应消息")
         private Message message;
+
+        @Schema(description = "结束原因：stop, length, content_filter", example = "stop")
         private String finish_reason;
 
         public int getIndex() {
@@ -103,8 +125,12 @@ public class ChatResponse {
         }
     }
 
+    @Schema(description = "消息")
     public static class Message {
+        @Schema(description = "角色：assistant", example = "assistant")
         private String role;
+
+        @Schema(description = "回复内容", example = "你好！有什么我可以帮助你的吗？")
         private String content;
 
         public String getRole() {
@@ -124,9 +150,15 @@ public class ChatResponse {
         }
     }
 
+    @Schema(description = "Token 使用统计")
     public static class Usage {
+        @Schema(description = "提示词 token 数", example = "20")
         private int prompt_tokens;
+
+        @Schema(description = "完成 token 数", example = "15")
         private int completion_tokens;
+
+        @Schema(description = "总 token 数", example = "35")
         private int total_tokens;
 
         public int getPrompt_tokens() {

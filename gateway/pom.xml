@@ -56,6 +56,13 @@
             <version>1.7.0</version>
         </dependency>
 
+        <!-- Qiniu Cloud SDK -->
+        <dependency>
+            <groupId>com.qiniu</groupId>
+            <artifactId>qiniu-java-sdk</artifactId>
+            <version>7.14.0</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -8,7 +8,10 @@ public enum ProviderType {
     CLAUDE,
     GOOGLE,
     DEEPSEEK,
-    LK888;
+    LK888,
+    GRSATI,
+    KL_CHAT,
+    KL_IMAGE;
 
     public static ProviderType from(String name) {
         if (name == null) {

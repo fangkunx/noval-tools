@@ -51,7 +51,7 @@ public class ImageGenCommand {
         private String model;
         private String prompt;
         private Integer n = 1;
-        private String size = "1024x1024";
+        private String size;  // 默认为 null，由 Provider 根据模型设置默认值
         private String responseFormat = "url";
 
         public Builder model(String model) {

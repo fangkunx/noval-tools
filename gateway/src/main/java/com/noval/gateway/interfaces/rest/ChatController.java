@@ -10,6 +10,7 @@ import com.noval.gateway.interfaces.rest.dto.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -31,7 +32,14 @@ import java.util.concurrent.Executors;
  */
 @RestController
 @RequestMapping("/v1")
-@Tag(name = "Chat", description = "聊天和视觉能力 - OpenAI 兼容协议")
+@Tag(name = "Chat", description = "聊天和视觉能力 - OpenAI 兼容协议\n\n" +
+        "**支持的 Chat 模型:**\n" +
+        "- **OpenAI**: gpt-4o, gpt-4o-mini, gpt-4-turbo\n" +
+        "- **Claude**: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5\n" +
+        "- **Google Gemini**: gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash\n" +
+        "- **DeepSeek**: deepseek-chat\n" +
+        "- **Grsai (代理)**: gpt-4o, gpt-4o-mini, claude-sonnet-5-5, gemini-2.0-flash\n\n" +
+        "**Grsai API 文档:** https://qmy27nhsd9.apifox.cn/")
 public class ChatController {
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
@@ -45,7 +53,34 @@ public class ChatController {
 
     @Operation(
             summary = "聊天补全",
-            description = "支持纯文本对话和视觉理解（当 messages 中包含 image_url 时自动使用视觉模型）"
+            description = "支持纯文本对话和视觉理解（当 messages 中包含 image_url 时自动使用视觉模型）\n\n" +
+                    "**可用的 Chat 模型:**\n" +
+                    "- gpt-4o, gpt-4o-mini, gpt-4-turbo (OpenAI)\n" +
+                    "- claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5 (Anthropic)\n" +
+                    "- gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash (Google)\n" +
+                    "- deepseek-chat (DeepSeek)\n\n" +
+                    "通过 Grsai 代理也可访问这些模型。",
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    content = @Content(
+                            examples = {
+                                    @ExampleObject(
+                                            name = "纯文本对话",
+                                            summary = "简单的文本聊天",
+                                            value = "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"system\",\"content\":\"你是一个有帮助的助手\"},{\"role\":\"user\",\"content\":\"你好！\"}],\"temperature\":0.7}"
+                                    ),
+                                    @ExampleObject(
+                                            name = "视觉理解",
+                                            summary = "带图片的多模态对话",
+                                            value = "{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"描述这张图片\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://example.com/image.jpg\"}}]}]}"
+                                    ),
+                                    @ExampleObject(
+                                            name = "流式响应",
+                                            summary = "启用流式输出",
+                                            value = "{\"model\":\"claude-sonnet-5-5\",\"messages\":[{\"role\":\"user\",\"content\":\"写一首诗\"}],\"stream\":true}"
+                                    )
+                            }
+                    )
+            )
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "成功", content = @Content(schema = @Schema(implementation = ChatResponse.class))),

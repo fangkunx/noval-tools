@@ -61,4 +61,34 @@ public class ProviderBeanConfig {
         }
         return new Lk888Provider(settings, requestLogger);
     }
+
+    @Bean
+    public GatewayProvider grsaiProvider(ProviderConfig config, ProviderRequestLogger requestLogger) {
+        ProviderConfig.ProviderSettings settings = config.getProvider("grsai");
+        if (settings == null) {
+            settings = new ProviderConfig.ProviderSettings();
+            settings.setBaseUrl("https://grsaiapi.com");
+        }
+        return new GrsaiProvider(settings, requestLogger);
+    }
+
+    @Bean
+    public GatewayProvider klChatProvider(ProviderConfig config, ProviderRequestLogger requestLogger) {
+        ProviderConfig.ProviderSettings settings = config.getProvider("kl-chat");
+        if (settings == null) {
+            settings = new ProviderConfig.ProviderSettings();
+            settings.setBaseUrl("https://apikl.ai");
+        }
+        return new KlChatProvider(settings, requestLogger);
+    }
+
+    @Bean
+    public GatewayProvider klImageProvider(ProviderConfig config, ProviderRequestLogger requestLogger) {
+        ProviderConfig.ProviderSettings settings = config.getProvider("kl-image");
+        if (settings == null) {
+            settings = new ProviderConfig.ProviderSettings();
+            settings.setBaseUrl("https://apikl.ai");
+        }
+        return new KlImageProvider(settings, requestLogger);
+    }
 }

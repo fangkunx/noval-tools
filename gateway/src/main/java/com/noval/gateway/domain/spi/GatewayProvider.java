@@ -50,6 +50,22 @@ public interface GatewayProvider {
     ImageGenResult imageGen(ImageGenCommand command, String modelName);
 
     /**
+     * Submit an image edit request (image-to-image).
+     * Default implementation returns unsupported error.
+     */
+    default ImageGenResult imageEdit(ImageEditCommand command, String modelName) {
+        return ImageGenResult.builder().error("Image editing not supported by this provider").build();
+    }
+
+    /**
+     * Submit an image composition request (multi-image to grid).
+     * Default implementation returns unsupported error.
+     */
+    default ImageGenResult imageCompose(ImageComposeCommand command, String modelName) {
+        return ImageGenResult.builder().error("Image composition not supported by this provider").build();
+    }
+
+    /**
      * Represents a single chunk in a streaming response.
      */
     class ChatStreamChunk {

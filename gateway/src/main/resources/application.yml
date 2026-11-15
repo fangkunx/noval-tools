@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: gateway
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
   datasource:
     url: jdbc:h2:file:./data/gateway-db;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
@@ -33,6 +37,24 @@ gateway:
     deepseek:
       api-key: ${DEEPSEEK_API_KEY:}
       base-url: https://api.deepseek.com
+    grsai:
+      api-key: ${GRSAI_API_KEY:}
+      base-url: https://grsaiapi.com
+    kl-chat:
+      api-key: ${KL_CHAT_API_KEY:}
+      base-url: https://apikl.ai
+    kl-image:
+      api-key: ${KL_IMAGE_API_KEY:}
+      base-url: https://apikl.ai
+    lk888:
+      api-key: ${LK888_API_KEY:sk-}
+      base-url: https://api.lk888.ai
+  # Qiniu Cloud OSS configuration
+  qiniu:
+    access-key: ${QINIU_ACCESS_KEY:}
+    secret-key: ${QINIU_SECRET_KEY:}
+    bucket: ${QINIU_BUCKET:}
+    domain: ${QINIU_DOMAIN:http://toj7jniwd.hn-bkt.clouddn.com}
   logging:
     request-body: true
     response-body: true

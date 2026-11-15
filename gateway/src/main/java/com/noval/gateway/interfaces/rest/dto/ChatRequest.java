@@ -8,10 +8,22 @@ import java.util.List;
 /**
  * OpenAI-compatible chat completion request.
  */
-@Schema(description = "聊天补全请求 - 兼容 OpenAI 协议")
+@Schema(description = "聊天补全请求 - 兼容 OpenAI 协议\n\n" +
+        "**支持的 Chat 模型:**\n" +
+        "- gpt-4o, gpt-4o-mini, gpt-4-turbo (OpenAI)\n" +
+        "- claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5 (Anthropic)\n" +
+        "- gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash (Google)\n" +
+        "- deepseek-chat (DeepSeek)\n" +
+        "- 通过 Grsai 代理也可访问以上模型")
 public class ChatRequest {
 
-    @Schema(description = "模型 ID，例如 gpt-4o, claude-sonnet-5-5, gemini-2.0-flash", example = "gpt-4o")
+    @Schema(description = "模型 ID\n\n" +
+            "**可选值:**\n" +
+            "- gpt-4o, gpt-4o-mini, gpt-4-turbo\n" +
+            "- claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5\n" +
+            "- gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash\n" +
+            "- deepseek-chat",
+            example = "gpt-4o")
     private String model;
 
     @Schema(description = "消息列表")

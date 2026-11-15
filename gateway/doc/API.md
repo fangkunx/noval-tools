@@ -173,7 +173,98 @@ curl -X POST http://localhost:8082/v1/images/generations \
 
 ---
 
-## 3. 模型列表
+## 3. 图像编辑 (图生图)
+
+### POST `/v1/images/edits`
+
+根据输入图片和文本提示词编辑图像。
+
+#### 请求参数
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `model` | string | 否 | gpt-image-1 | 模型 ID |
+| `prompt` | string | 是 | - | 编辑描述 |
+| `image` | string | 是 | - | 输入图片 (Base64 编码或 URL) |
+| `mask` | string | 否 | - | 遮罩图片 (Base64 编码或 URL，用于局部重绘) |
+| `n` | integer | 否 | 1 | 生成数量 (1-10) |
+| `size` | string | 否 | 1024x1024 | 尺寸：`1024x1024`, `1792x1024`, `1024x1792` |
+| `response_format` | string | 否 | url | 响应格式：`url` 或 `b64_json` |
+| `strength` | float | 否 | 0.75 | 编辑强度 (0.0-1.0) |
+
+#### 请求示例
+
+```bash
+# 使用 URL 输入图片
+curl -X POST http://localhost:8082/v1/images/edits \
+  -H "Authorization: Bearer gw-default-key-12345" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-image-1",
+    "prompt": "Add a beautiful sunset background",
+    "image": "https://example.com/input.png",
+    "n": 1,
+    "size": "1024x1024",
+    "strength": 0.75
+  }'
+```
+
+```bash
+# 使用 Base64 输入图片
+curl -X POST http://localhost:8082/v1/images/edits \
+  -H "Authorization: Bearer gw-default-key-12345" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "flux-pro",
+    "prompt": "Transform to watercolor style",
+    "image": "data:image/png;base64,iVBORw0KGgoAAAANS...",
+    "n": 1,
+    "size": "1024x1024"
+  }'
+```
+
+```bash
+# 局部重绘 (Inpainting)
+curl -X POST http://localhost:8082/v1/images/edits \
+  -H "Authorization: Bearer gw-default-key-12345" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-image-1",
+    "prompt": "Replace the sky with stars",
+    "image": "https://example.com/input.png",
+    "mask": "https://example.com/mask.png",
+    "n": 1,
+    "size": "1024x1024"
+  }'
+```
+
+#### 响应示例
+
+```json
+{
+  "created": 1700000000,
+  "data": [
+    {
+      "url": "https://example.com/edited-image.png",
+      "revised_prompt": null
+    }
+  ]
+}
+```
+
+#### 支持的模型
+
+| 提供商 | 模型 ID | 说明 |
+|--------|---------|------|
+| KL Image | `gpt-image-1` | GPT Image 1 |
+| KL Image | `gpt-image-2.5` | GPT Image 2.5 超分 |
+| KL Image | `flux-pro` | Flux Pro |
+| KL Image | `flux-dev` | Flux Dev |
+| KL Image | `flux-schnell` | Flux Schnell |
+
+---
+
+## 4. 模型列表
 
 ### GET `/v1/models`
 
@@ -183,7 +274,7 @@ curl -X POST http://localhost:8082/v1/images/generations \
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `capability` | string | 否 | 按能力过滤：`CHAT`, `VISION`, `IMAGE_GEN` |
+| `capability` | string | 否 | 按能力过滤：`CHAT`, `VISION`, `IMAGE_GEN`, `IMAGE_EDIT` |
 
 #### 请求示例
 
@@ -335,6 +426,60 @@ curl http://localhost:8082/v1/models/gpt-4o \
 | `gemini-1.5-pro` | CHAT, VISION | Gemini 1.5 Pro |
 | `gemini-1.5-flash` | CHAT, VISION | Gemini 1.5 Flash |
 
+### Grsai (Nano Banana)
+
+| 模型 ID | 能力 | 说明 |
+|---------|------|------|
+| `nano-banana` | IMAGE_GEN | Nano Banana 基础版 |
+| `nano-banana-fast` | IMAGE_GEN | Nano Banana 快速版 |
+| `nano-banana-2` | IMAGE_GEN | Nano Banana 2 代 |
+| `nano-banana-2-cl` | IMAGE_GEN | Nano Banana 2 CL |
+| `nano-banana-2-2k-cl` | IMAGE_GEN | Nano Banana 2 2K CL |
+| `nano-banana-2-4k-cl` | IMAGE_GEN | Nano Banana 2 4K CL |
+| `nano-banana-2.1` | IMAGE_GEN | Nano Banana 2.1 |
+| `nano-banana-pro` | IMAGE_GEN | Nano Banana Pro |
+| `nano-banana-pro-vt` | IMAGE_GEN | Nano Banana Pro VT |
+| `nano-banana-pro-cl` | IMAGE_GEN | Nano Banana Pro CL |
+| `nano-banana-pro-vip` | IMAGE_GEN | Nano Banana Pro VIP |
+| `nano-banana-pro-4k-vip` | IMAGE_GEN | Nano Banana Pro 4K VIP |
+| `gpt-4o` | CHAT, VISION | GPT-4o (Grsai 代理) |
+| `gpt-4o-mini` | CHAT, VISION | GPT-4o Mini (Grsai 代理) |
+| `claude-sonnet-5-5` | CHAT, VISION | Claude Sonnet 5.5 (Grsai 代理) |
+| `gemini-2.0-flash` | CHAT, VISION | Gemini 2.0 Flash (Grsai 代理) |
+
+### KL Chat (apikl.ai)
+
+| 模型 ID | 能力 | 说明 |
+|---------|------|------|
+| `gpt-4o` | CHAT, VISION | GPT-4o (KL 聊天) |
+| `gpt-4o-mini` | CHAT, VISION | GPT-4o Mini (KL 聊天) |
+| `claude-sonnet-5-5` | CHAT, VISION | Claude Sonnet 5.5 (KL 聊天) |
+| `claude-opus-5-5` | CHAT, VISION | Claude Opus 5.5 (KL 聊天) |
+| `gemini-2.0-flash` | CHAT, VISION | Gemini 2.0 Flash (KL 聊天) |
+| `deepseek-chat` | CHAT | DeepSeek Chat (KL 聊天) |
+| `deepseek-reasoner` | CHAT | DeepSeek Reasoner (KL 聊天) |
+
+### KL Image (apikl.ai)
+
+| 模型 ID | 能力 | 说明 |
+|---------|------|------|
+| `dall-e-3` | IMAGE_GEN | DALL-E 3 (KL 图片) |
+| `dall-e-2` | IMAGE_GEN | DALL-E 2 (KL 图片) |
+| `gpt-image-1` | IMAGE_GEN, IMAGE_EDIT | GPT Image 1 (KL 图片) |
+| `gpt-image-2.5-flare` | IMAGE_GEN | GPT Image 2.5 Flare - 快速出图 |
+| `gpt-image-2.5-sunburst` | IMAGE_GEN | GPT Image 2.5 Sunburst - 高画质 |
+| `gpt-image-2.5-flare-4k` | IMAGE_GEN | GPT Image 2.5 Flare 4K - 快速 4K |
+| `gpt-image-2.5-sunburst-4k` | IMAGE_GEN | GPT Image 2.5 Sunburst 4K - 高画质 4K |
+| `gpt-image-2.5` | IMAGE_GEN, IMAGE_EDIT | GPT Image 2.5 超分 - 支持 4K 超分 |
+| `gpt-image-2` | IMAGE_GEN | GPT Image 2 (KL 图片) |
+| `flux-pro` | IMAGE_GEN, IMAGE_EDIT | Flux Pro (KL 图片，支持图生图) |
+| `flux-dev` | IMAGE_GEN, IMAGE_EDIT | Flux Dev (KL 图片，支持图生图) |
+| `flux-schnell` | IMAGE_GEN, IMAGE_EDIT | Flux Schnell (KL 图片，支持图生图) |
+
+**默认分辨率：**
+- `gpt-image-2.5` 系列默认 2K (2048x2048)
+- 含 `-4k` 的模型默认 4K (3840x2160)
+
 ---
 
 ## 能力说明
@@ -344,6 +489,7 @@ curl http://localhost:8082/v1/models/gpt-4o \
 | `CHAT` | 纯文本对话 | messages 中 content 为字符串 |
 | `VISION` | 图像理解 | messages 中 content 包含 image_url |
 | `IMAGE_GEN` | 图像生成 | 使用 `/v1/images/generations` 端点 |
+| `IMAGE_EDIT` | 图像编辑 (图生图) | 使用 `/v1/images/edits` 端点 |
 
 ---
 

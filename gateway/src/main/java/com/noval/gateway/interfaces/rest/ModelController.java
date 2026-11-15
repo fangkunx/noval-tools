@@ -19,7 +19,15 @@ import java.util.stream.Collectors;
  */
 @RestController
 @RequestMapping("/v1")
-@Tag(name = "Models", description = "模型列表 - 查询所有可用模型")
+@Tag(name = "Models", description = "模型列表 - 查询所有可用模型\n\n" +
+        "**当前支持的 Provider 和模型:**\n" +
+        "- **OpenAI**: gpt-4o, gpt-4o-mini, gpt-4-turbo, dall-e-3, dall-e-2\n" +
+        "- **Claude**: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5\n" +
+        "- **Google Gemini**: gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash\n" +
+        "- **DeepSeek**: deepseek-chat\n" +
+        "- **LK888**: tt-image-2.5, tt-image-2.6, banana-2.1, gk-image-2.0\n" +
+        "- **Grsai**: nano-banana 系列图像生成模型，以及通过代理的 chat 模型\n\n" +
+        "使用 `?capability=IMAGE_GEN` 可按能力过滤模型。")
 public class ModelController {
 
     private final ModelService modelService;

@@ -33,6 +33,7 @@ public class PipelineService {
     private volatile String novelTitle = "";
     private volatile int segmentCount;
     private volatile int currentStep = -1;
+    private volatile String currentStyle = "韩漫"; // 当前画风
 
     private final List<StepState> steps = Collections.synchronizedList(new ArrayList<>());
     private final Set<Integer> running = ConcurrentHashMap.newKeySet();
@@ -252,6 +253,8 @@ public class PipelineService {
     public int getSegmentCount() { return segmentCount; }
     public int getCurrentStep() { return currentStep; }
     public String getCurrentTaskId() { return currentTaskId; }
+    public String getCurrentStyle() { return currentStyle; }
+    public void setCurrentStyle(String style) { this.currentStyle = style; }
 
     // ── Shared state accessors (for step strategies) ──────────────
 
@@ -286,6 +289,10 @@ public class PipelineService {
     // ─── Public API ──────────────────────────────────────────────────
 
     public Map<String, Object> init(String text, int segCount, String title) {
+        return init(text, segCount, title, config.getDefaultStyle());
+    }
+
+    public Map<String, Object> init(String text, int segCount, String title, String style) {
         int count = Math.max(1, Math.min(segCount, config.getMaxSegments()));
         // If there's already a task loaded with the same text, don't create a new one
         // Otherwise, always create a fresh project in the database
@@ -293,6 +300,7 @@ public class PipelineService {
         novelText = text.trim();
         novelTitle = title != null && !title.isEmpty() ? title : "未命名作品";
         segmentCount = count;
+        currentStyle = style != null && !style.isEmpty() ? style : config.getDefaultStyle();
 
         // Create project in SQLite
         currentTaskId = taskStore.createTask(novelTitle, novelText, segmentCount, STEP_DEFS);
@@ -307,6 +315,7 @@ public class PipelineService {
         resp.put("segmentCount", count);
         resp.put("novelLength", chars);
         resp.put("title", novelTitle);
+        resp.put("currentStyle", currentStyle);
         resp.put("estimatedMaxSegments", estMax);
         resp.put("warning", count > estMax
                 ? "文本" + chars + "字，预估最多" + estMax + "段。当前" + count + "段过多。" : null);
@@ -415,6 +424,7 @@ public class PipelineService {
         resp.put("hasState", !novelText.isEmpty());
         resp.put("title", novelTitle);
         resp.put("segmentCount", segmentCount);
+        resp.put("currentStyle", currentStyle);
         List<Map<String, Object>> si = new ArrayList<>();
         for (StepState s : steps) {
             Map<String, Object> m = new LinkedHashMap<>();

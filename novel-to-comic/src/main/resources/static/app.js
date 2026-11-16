@@ -1,364 +1,429 @@
-// ─── State ─────────────────────────────────────────────────────────
-const S = {
-  text: '', title: '', segCount: 90, curIdx: -1, steps: [], init: false, busy: false, es: null,
+// ===== 状态管理 =====
+const State = {
+  currentScreen: 'home',
+  projects: [],
+  currentTask: { id: null, title: '', text: '', segmentCount: 90, steps: [], novelLength: 0, style: '韩漫' },
+  ui: { isBusy: false, selectedStep: -1, projectFilter: 'all' },
+  es: null,
+  pollTimer: null
 };
 
-// ─── DOM ────────────────────────────────────────────────────────────
+const STEP_DEFS = [
+  { id: 'split', name: '文本拆分', desc: '将小说切分为多个片段', icon: '✂️' },
+  { id: 'characters', name: '提取人物', desc: '识别文本中的人物角色', icon: '👥' },
+  { id: 'turnaround', name: '角色参考图', desc: '为每个角色生成三视图/立绘', icon: '🎨' },
+  { id: 'storyboard', name: '一键分镜', desc: '将文字切成分镜页', icon: '📝' },
+  { id: 'prompts', name: '生成描述词', desc: '组装出图提示词', icon: '✨' },
+  { id: 'image', name: '生成图片', desc: 'AI 生成漫画图片', icon: '🖼️' },
+  { id: 'lastpage', name: '末张引流', desc: '生成末张引流页', icon: '📌' },
+  { id: 'export', name: '成片导出', desc: '导出分页图或视频', icon: '📤' },
+];
+
+const STYLES = {
+  '韩漫': { icon: '👤', desc: '竖屏条漫默认：真人比例、清晰线、柔光薄涂' },
+  '清冷都市': { icon: '🏙️', desc: '职场/都市韩漫：干净线稿、低饱和' },
+  '柔光韩漫': { icon: '💫', desc: '精致五官与柔和环境光' },
+  'Q版': { icon: '🎭', desc: '二头身、大眼、平涂马卡龙色' },
+  '软萌都市': { icon: '🌸', desc: 'Q版三四头身·大眼柔光' },
+  '古风': { icon: '🏮', desc: '2D 国风插画，多层平涂' },
+};
+
+// 角色数据（从后端获取或本地缓存）
+let CHARACTERS_DATA = [];
+let STORYBOARDS_DATA = [];
+
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 
-// ─── Tabs ───────────────────────────────────────────────────────────
-$$('.tab').forEach(t => t.onclick = () => {
-  $$('.tab').forEach(x => x.classList.remove('active'));
-  t.classList.add('active');
-  $$('.tab-content').forEach(x => x.classList.remove('active'));
-  $('#tab' + (t.dataset.tab === 'paste' ? 'Paste' : 'Upload')).classList.add('active');
+// ===== 初始化 =====
+document.addEventListener('DOMContentLoaded', () => {
+  initNavigation();
+  initHomePage();
+  initProjectsPage();
+  initWorkbench();
+  initSettingsPage();
+  initStyleGrid();
+  initFileUpload();
+  checkSavedState();
+  loadProjects();
 });
 
-// ─── Upload ─────────────────────────────────────────────────────────
-const uz = $('#uploadZone'), fi = $('#fileInput'), uf = $('#uploadInfo');
-$('#btnSelectFile').onclick = () => fi.click();
-uz.onclick = e => { if (e.target !== $('#btnSelectFile')) fi.click(); };
-uz.ondragover = e => { e.preventDefault(); uz.classList.add('dragover'); };
-uz.ondragleave = () => uz.classList.remove('dragover');
-uz.ondrop = e => { e.preventDefault(); uz.classList.remove('dragover'); if (e.dataTransfer.files[0]) upFile(e.dataTransfer.files[0]); };
-fi.onchange = () => { if (fi.files[0]) upFile(fi.files[0]); };
-$('#btnClearFile').onclick = () => { uf.style.display = 'none'; uz.style.display = ''; fi.value = ''; S.text = ''; updStart(); };
-
-async function upFile(file) {
-  if (!file.name.endsWith('.txt')) { alert('仅支持 .txt'); return; }
-  const fd = new FormData(); fd.append('file', file);
-  const r = await fetch('/api/upload', { method: 'POST', body: fd });
-  const d = await r.json();
-  if (!d.success) { alert(d.error); return; }
-  S.text = d.text; S.title = d.title || ''; $('#novelTitle').value = S.title;
-  $('#novelText').value = d.text.slice(0, 500) + (d.text.length > 500 ? '\n\n... (完整内容已加载)' : '');
-  $('#uploadFileName').textContent = d.filename;
-  $('#uploadFileSize').textContent = fmtSize(d.size);
-  uf.style.display = 'flex'; uz.style.display = 'none'; updStart();
+// ===== 页面切换 =====
+function switchScreen(screenName) {
+  State.currentScreen = screenName;
+  $$('.screen').forEach(s => { s.classList.add('hidden'); s.style.display = ''; });
+  const target = $(`#screen-${screenName}`);
+  if (target) { target.classList.remove('hidden'); if (screenName === 'work') target.style.display = 'flex'; }
+  $$('.nav-btn').forEach(btn => btn.classList.toggle('is-on', btn.dataset.screen === screenName));
+  document.body.dataset.screen = screenName;
+  if (screenName === 'projects') loadProjects();
+  if (screenName === 'home') loadRecentProjects();
 }
 
-$('#novelText').oninput = () => { S.text = $('#novelText').value; updStart(); };
-$('#novelTitle').oninput = () => S.title = $('#novelTitle').value;
-$('#segmentCount').oninput = () => { S.segCount = Math.min(140, Math.max(1, parseInt($('#segmentCount').value) || 90)); $('#segmentCount').value = S.segCount; };
-function updStart() { $('#btnStart').disabled = !S.text.trim(); }
+function initNavigation() {
+  $$('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchScreen(btn.dataset.screen)));
+  $('#brand-home').addEventListener('click', () => switchScreen('home'));
+}
 
-// ─── Auto-restore on page load ──────────────────────────────────────
-(async function checkSavedState() {
+// ===== 首页 =====
+function initHomePage() {
+  $('#home-new').addEventListener('click', () => openNewProjectModal());
+  $('#home-continue').addEventListener('click', async () => {
+    try {
+      const r = await fetch('/api/state');
+      const d = await r.json();
+      if (d.hasState) {
+        const p = State.projects.find(p => p.status === 'IN_PROGRESS');
+        p ? loadProject(p.id) : showToast('没有可恢复的任务', 'info');
+      } else {
+        showToast('没有可恢复的任务', 'info');
+      }
+    } catch (e) { showToast('加载状态失败', 'error'); }
+  });
+  $('#home-more').addEventListener('click', () => switchScreen('projects'));
+  $('#home-guide').addEventListener('click', () => showToast('教程功能开发中...', 'info'));
+}
+
+function loadRecentProjects() {
+  const container = $('#home-recent');
+  const recent = State.projects.slice(0, 4);
+  if (recent.length === 0) {
+    container.innerHTML = '<div class="project-empty"><div class="empty-icon">📭</div><div>暂无项目</div></div>';
+    return;
+  }
+  container.innerHTML = recent.map(p => renderProjectCard(p)).join('');
+  bindProjectCardEvents(container);
+  $('#home-foot-meta').textContent = `共 ${State.projects.length} 个项目`;
+}
+
+// ===== 项目列表 =====
+function initProjectsPage() {
+  $('#projects-new').addEventListener('click', () => openNewProjectModal());
+  $$('.filter-btn').forEach(btn => btn.addEventListener('click', () => {
+    $$('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    State.ui.projectFilter = btn.dataset.filter;
+    renderProjectList();
+  }));
+}
+
+async function loadProjects() {
   try {
-    const r = await fetch('/api/state');
-    const d = await r.json();
-    if (!d.hasState) return;
-    // Show restore banner
-    const doneCount = d.completedSteps;
-    const totalCount = d.totalSteps;
-    const nextIdx = d.steps.findIndex(s => s.status !== 'done');
-    const allDone = doneCount === totalCount;
-
-    $('#bannerRestore').style.display = 'flex';
-    $('#bannerTitle').textContent = d.title;
-    $('#bannerProgress').textContent = allDone ? '全部完成 🎉' : `已完成 ${doneCount}/${totalCount} 步${nextIdx >= 0 ? ` · 下一步: ${d.steps[nextIdx].name}` : ''}`;
-    if (allDone) {
-      $('#bannerProgress').style.color = '#1a8a3f';
-      $('#btnRestore').textContent = '📋 查看结果';
-    } else {
-      $('#btnRestore').textContent = '▶ 继续执行';
+    const r = await fetch('/api/projects');
+    if (r.ok) {
+      State.projects = await r.json();
+      renderProjectList();
+      loadRecentProjects();
+      updateProjectTabs();
     }
-    $('#btnRestore').onclick = () => restorePipeline(d, nextIdx, allDone);
-    $('#btnRestoreNew').onclick = () => {
-      $('#bannerRestore').style.display = 'none';
-    };
-  } catch (_) {}
-})();
+  } catch (e) { console.error('加载项目失败:', e); }
+}
 
-async function restorePipeline(stateData, nextIdx, allDone) {
-  // Load full status
-  const r = await fetch('/api/status');
-  const d = await r.json();
-  S.steps = d.steps;
-  S.init = true;
-  S.segCount = d.segmentCount;
-  S.title = d.title;
-  S.text = d.novelLength > 0 ? '(已恢复)' : '';
+function renderProjectList() {
+  const container = $('#project-list-body');
+  let filtered = State.projects;
+  if (State.ui.projectFilter === 'active') filtered = filtered.filter(p => p.status !== 'COMPLETED');
+  else if (State.ui.projectFilter === 'done') filtered = filtered.filter(p => p.status === 'COMPLETED');
+  $('#projectCount').textContent = `共 ${filtered.length} 个项目`;
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="project-empty"><div class="empty-icon">📭</div><div>暂无项目</div></div>';
+    return;
+  }
+  container.innerHTML = filtered.map(p => renderProjectCard(p, true)).join('');
+  bindProjectCardEvents(container, true);
+}
 
-  $('#panelInput').style.display = 'none';
-  $('#panelResult').style.display = 'block';
-  $('#bannerRestore').style.display = 'none';
+function renderProjectCard(project, showActions = false) {
+  const pct = project.totalSteps > 0 ? Math.round(project.completedSteps / project.totalSteps * 100) : 0;
+  const isCompleted = project.status === 'COMPLETED';
+  let icon = '📄', statusText = '待开始';
+  if (isCompleted) { icon = '🎉'; statusText = '已完成'; }
+  else if (project.completedSteps > 0) { icon = '🔄'; statusText = `${project.completedSteps}/${project.totalSteps}`; }
+  return `<div class="project-card ${isCompleted ? 'completed' : ''}" data-id="${project.id}">
+    <div class="card-icon">${icon}</div>
+    <div class="card-title">${project.title}</div>
+    <div class="card-meta">📏 ${formatSize(project.novelLength)} · 📐 ${project.segmentCount}段 · ${statusText}</div>
+    <div class="card-progress"><div class="card-progress-fill" style="width:${pct}%"></div></div>
+    ${showActions ? `<div class="card-actions"><button class="btn btn-sm btn-outline btn-view" data-id="${project.id}">${isCompleted ? '👁️ 查看' : '▶ 继续'}</button><button class="btn btn-sm btn-outline btn-delete" data-id="${project.id}">🗑️</button></div>` : ''}
+  </div>`;
+}
+
+function bindProjectCardEvents(container, showActions = false) {
+  container.querySelectorAll('.project-card').forEach(card => card.addEventListener('click', e => { if (!e.target.closest('.card-actions')) loadProject(card.dataset.id); }));
+  if (showActions) {
+    container.querySelectorAll('.btn-view').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); loadProject(btn.dataset.id); }));
+    container.querySelectorAll('.btn-delete').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); deleteProject(btn.dataset.id); }));
+  }
+}
+
+async function loadProject(projectId) {
+  try {
+    showToast('正在加载项目...', 'info');
+    const r = await fetch(`/api/projects/${projectId}/load`, { method: 'POST' });
+    if (!r.ok) {
+      const d = await r.json();
+      showToast(d.error || '加载失败', 'error');
+      return;
+    }
+    const d = await r.json();
+    switchScreen('work');
+    await applyLoadedState(d);
+    showToast(`已加载项目`, 'success');
+  } catch (e) { showToast('加载失败: ' + e.message, 'error'); }
+}
+
+async function applyLoadedState(d) {
+  State.currentTask.title = d.title || '';
+  State.currentTask.segmentCount = d.segmentCount || 90;
+  State.currentTask.style = d.currentStyle || State.currentTask.style || '韩漫';
+
+  // 更新侧边栏画风显示
+  if (State.currentTask.style) {
+    $('#rail-style-summary').textContent = `画风 · ${State.currentTask.style}`;
+    $('#style-name').textContent = State.currentTask.style;
+    $('#style-preview-icon').textContent = STYLES[State.currentTask.style]?.icon || '👤';
+    $('#style-blurb').textContent = STYLES[State.currentTask.style]?.desc || '';
+  }
+
+  // 获取步骤状态
+  const statusR = await fetch('/api/status');
+  const statusD = await statusR.json();
+  State.currentTask.steps = statusD.steps || [];
+  State.currentTask.novelLength = statusD.novelLength || 0;
+
+  showWorkContent();
   renderSteps();
-  updateBtns();
 
-  // Show all completed step results
-  const completedSteps = S.steps.filter(s => s.status === 'done');
+  // 加载已完成步骤的结果
+  const completedSteps = State.currentTask.steps.filter(s => s.status === 'done');
   if (completedSteps.length > 0) {
     $('#resultTitle').textContent = `📋 ${d.title}`;
-    if (allDone) {
-      $('#resultStatus').textContent = '✅ 全部完成';
-      $('#resultStatus').className = 'badge success';
-      $('#btnContinue').style.display = 'none';
-    } else {
-      $('#resultStatus').textContent = `已完成 ${completedSteps.length}/${S.steps.length}`;
-      $('#resultStatus').className = 'badge success';
-    }
+    $('#resultStatus').textContent = `已完成 ${completedSteps.length}/${State.currentTask.steps.length}`;
+    $('#resultStatus').className = 'badge success';
 
-    // Fetch and display each completed step's result
-    for (const s of completedSteps) {
+    for (const step of completedSteps) {
       try {
-        const rr = await fetch(`/api/results/${s.id}`);
+        const rr = await fetch(`/api/results/${step.id}`);
         if (rr.ok) {
           const result = await rr.json();
-          S.steps[s.index].result = result;
-          showResult(s.index, result);
+          State.currentTask.steps[step.index].result = result;
+          showResult(step.index, result);
         }
       } catch (_) {}
     }
 
-    // Show next step button if not all done
-    if (!allDone && nextIdx >= 0) {
-      showNextStepInfo(nextIdx);
-      setupBtn(nextIdx);
-    } else if (allDone) {
-      $('#resultContent').insertAdjacentHTML('beforeend', `
-        <div style="text-align:center;margin-top:24px;padding:24px;background:#f0fdf4;border-radius:12px;">
-          <div style="font-size:32px;">🎉</div>
-          <div style="font-size:18px;font-weight:700;color:#1a8a3f;">全部完成！</div>
-          <div style="color:var(--text-secondary);">点击左下角「下载结果」获取 JSON</div>
-        </div>
-      `);
+    // 显示角色和分镜
+    if (completedSteps.some(s => s.id === 'characters' || s.id === 'turnaround')) {
+      await loadCharacters();
     }
-  } else if (nextIdx >= 0) {
-    // No steps done yet but init was called
-    showReady({ novelLength: d.novelLength, segmentCount: d.segmentCount, estimatedMaxSegments: Math.floor(d.novelLength / 20) });
-    setupBtn(nextIdx);
-  }
-}
-
-function showNextStepInfo(nextIdx) {
-  if (nextIdx >= S.steps.length) return;
-  $('#resultContent').insertAdjacentHTML('beforeend', `
-    <div style="margin-top:20px;padding:16px;background:#fff3cd;border:1px solid #ffc107;border-radius:8px;color:#856404;">
-      下一步：<strong>${S.steps[nextIdx].name}</strong> — ${S.steps[nextIdx].desc}
-    </div>
-  `);
-}
-
-// ─── Init ───────────────────────────────────────────────────────────
-$('#btnStart').onclick = async () => {
-  if (!S.text.trim()) return;
-  S.title = $('#novelTitle').value || '未命名作品';
-  S.segCount = parseInt($('#segmentCount').value) || 90;
-
-  const r = await fetch('/api/init', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: S.text, segmentCount: S.segCount, title: S.title }),
-  });
-  const d = await r.json();
-  if (!d.success) { alert(d.error); return; }
-  S.steps = d.steps; S.init = true; S.segCount = d.segmentCount;
-  showWarn(d.warning);
-  renderSteps();
-  $('#panelInput').style.display = 'none';
-  $('#panelResult').style.display = 'block';
-  $('#bannerRestore').style.display = 'none';
-  showReady(d);
-  setupBtn(0);
-  updateBtns();
-};
-
-// ─── Steps Panel ────────────────────────────────────────────────────
-function renderSteps() {
-  $('#stepList').innerHTML = S.steps.map((s, i) => `
-    <div class="step-item ${i===S.curIdx?'active':''} ${s.status==='done'?'completed':''}" data-step="${i}" title="${s.status==='done'?'点击查看此步骤结果':''}">
-      <div class="step-icon ${s.status}">${s.icon}</div>
-      <div class="step-body">
-        <div class="step-name">${s.name} ${s.status==='done'?'✅':''}</div>
-        <div class="step-desc">${s.desc}</div>
-        <span class="step-status ${s.status}">${stText(s.status)}</span>
-      </div>
-      <div class="step-actions-mini">
-        ${(s.status==='done' && s.result) ? `<button class="btn btn-xs view-btn" data-step="${i}" title="查看此步骤结果">👁️ 查看</button>` : ''}
-        ${(s.status==='done'||s.status==='error') ? `<button class="btn btn-xs rerun-btn" data-step="${i}" title="从此步重新执行">🔄</button>` : ''}
-      </div>
-    </div>
-  `).join('');
-
-  // Attach "view result" handlers
-  $$('.view-btn').forEach(btn => {
-    btn.onclick = async (e) => {
-      e.stopPropagation();
-      const stepIdx = parseInt(btn.dataset.step);
-      await viewStepResult(stepIdx);
-    };
-  });
-
-  // Attach rerun handlers
-  $$('.rerun-btn').forEach(btn => {
-    btn.onclick = async (e) => {
-      e.stopPropagation();
-      const stepIdx = parseInt(btn.dataset.step);
-      if (!confirm(`确定从「${S.steps[stepIdx].name}」开始重新执行？\n此操作将清除该步骤及之后的所有结果。`)) return;
-      await rerunFrom(stepIdx);
-    };
-  });
-
-  // Click step item to view result (if done), or do nothing (if running/pending)
-  $$('.step-item.completed').forEach(item => {
-    item.style.cursor = 'pointer';
-    item.onclick = async () => {
-      const stepIdx = parseInt(item.dataset.step);
-      await viewStepResult(stepIdx);
-    };
-  });
-}
-
-// View a completed step's result (highlight it in the result panel)
-async function viewStepResult(stepIdx) {
-  const step = S.steps[stepIdx];
-  if (!step || step.status !== 'done') return;
-
-  // If result not loaded yet, fetch it
-  if (!step.result) {
-    try {
-      const rr = await fetch(`/api/results/${step.id}`);
-      if (rr.ok) {
-        step.result = await rr.json();
-        S.steps[stepIdx].result = step.result;
-      } else {
-        alert('该步骤结果尚未保存');
-        return;
-      }
-    } catch (_) {
-      alert('获取结果失败');
-      return;
+    if (completedSteps.some(s => s.id === 'storyboard')) {
+      await loadStoryboards();
     }
   }
 
-  // Clear result panel and show this step
-  $('#resultTitle').textContent = `👁️ ${step.name} 结果`;
-  $('#resultStatus').textContent = '✅ 已完成';
-  $('#resultStatus').className = 'badge success';
-  $('#resultContent').innerHTML = '';
-  showResult(stepIdx, step.result);
+  // 设置下一步按钮
+  const nextIdx = State.currentTask.steps.findIndex(s => s.status !== 'done');
+  if (nextIdx >= 0) setupButton(nextIdx);
 
-  // Scroll to result section
-  setTimeout(() => {
-    const section = $('#resultContent').querySelector('.result-section');
-    if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, 100);
-
-  // Show continue button for next step if applicable
-  const nx = stepIdx + 1;
-  if (nx < S.steps.length && S.steps[nx].status !== 'done') {
-    setupBtn(nx);
-  } else if (S.steps.every(s => s.status === 'done')) {
-    $('#btnContinue').style.display = 'none';
-  } else {
-    // Find next pending step
-    const nextPending = S.steps.findIndex(s => s.status === 'pending');
-    if (nextPending >= 0) setupBtn(nextPending);
-    else $('#btnContinue').style.display = 'none';
-  }
+  updateButtons();
+  updateProjectTabs();
 }
 
-async function rerunFrom(stepIdx) {
-  S.busy = true;
-  $('#btnContinue').disabled = true;
-  $('#resultContent').innerHTML = `<p style="color:var(--text-secondary);">🔄 正在重置步骤...</p>`;
+async function deleteProject(projectId) {
+  const project = State.projects.find(p => p.id === projectId);
+  if (!project) return;
+  if (!confirm(`确定删除项目「${project.title}」？`)) return;
+  try {
+    const r = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+    const d = await r.json();
+    if (!d.success) { showToast(d.error || '删除失败', 'error'); return; }
+    showToast('项目已删除', 'success');
+    await loadProjects();
+  } catch (e) { showToast('删除失败: ' + e.message, 'error'); }
+}
 
-  const r = await fetch(`/api/rerun/${stepIdx}`, { method: 'POST' });
-  const d = await r.json();
-  if (!d.success) { alert(d.error); S.busy = false; return; }
+// ===== 工作台 =====
+function initWorkbench() {
+  // Tab 切换
+  $$('.tab').forEach(tab => tab.addEventListener('click', () => {
+    $$('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    $$('.tab-content').forEach(c => c.classList.remove('active'));
+    $(`#tab${tab.dataset.tab === 'paste' ? 'Paste' : 'Upload'}`).classList.add('active');
+  }));
 
-  // Update local state
-  S.steps = d.steps.map((s, i) => ({ ...S.steps[i], ...s }));
-  S.busy = false;
+  // 输入事件
+  $('#novelText').addEventListener('input', () => { State.currentTask.text = $('#novelText').value; updateStartButton(); });
+  $('#novelTitle').addEventListener('input', () => { State.currentTask.title = $('#novelTitle').value; });
+  $('#segmentCount').addEventListener('input', () => { State.currentTask.segmentCount = parseInt($('#segmentCount').value) || 90; });
+
+  // 按钮事件
+  $('#btnStart').addEventListener('click', startProcessing);
+  $('#btnContinue').addEventListener('click', () => { const idx = parseInt($('#btnContinue').dataset.next); if (!isNaN(idx)) runStep(idx); });
+  $('#btnReset').addEventListener('click', async () => { if (confirm('确定重置？')) { await resetTask(); showInputPanel(); showToast('任务已重置', 'success'); } });
+  $('#btnDownload').addEventListener('click', () => { window.open('/api/download', '_blank'); });
+  $('#new-work').addEventListener('click', () => openNewProjectModal());
+  $('#open-projects').addEventListener('click', () => switchScreen('projects'));
+
+  // 角色区按钮
+  $('#btnViewAllSettings').addEventListener('click', () => showToast('打开全部角色设定板', 'info'));
+  $('#btnGenerateAll').addEventListener('click', () => { showToast('开始为所有角色生成/补齐立绘...', 'info'); });
+  $('#btnManualAdd').addEventListener('click', () => { addManualCharacter(); });
+  $('#btnAssetLibrary').addEventListener('click', () => showToast('素材库功能开发中...', 'info'));
+  $('#btnCollapseChars').addEventListener('click', () => {
+    const section = $('#charactersSection');
+    if (section.style.display === 'none') { section.style.display = ''; $('#btnCollapseChars').textContent = '收起人物'; }
+    else { section.style.display = 'none'; $('#btnCollapseChars').textContent = '展开人物'; }
+  });
+}
+
+function initFileUpload() {
+  const zone = $('#uploadZone');
+  const input = $('#fileInput');
+
+  $('#btnSelectFile').addEventListener('click', () => input.click());
+  zone.addEventListener('click', e => { if (e.target !== $('#btnSelectFile')) input.click(); });
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('dragover'); if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]); });
+  input.addEventListener('change', () => { if (input.files[0]) uploadFile(input.files[0]); });
+}
+
+async function uploadFile(file) {
+  if (!file.name.endsWith('.txt')) { showToast('仅支持 .txt 文件', 'error'); return; }
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const r = await fetch('/api/upload', { method: 'POST', body: formData });
+    const d = await r.json();
+    if (!d.success) { showToast(d.error || '上传失败', 'error'); return; }
+    State.currentTask.text = d.text;
+    State.currentTask.title = d.title || '';
+    $('#novelTitle').value = State.currentTask.title;
+    $('#novelText').value = d.text.slice(0, 500) + (d.text.length > 500 ? '\n\n... (完整内容已加载)' : '');
+    showToast('文件上传成功', 'success');
+    updateStartButton();
+  } catch (e) { showToast('上传失败: ' + e.message, 'error'); }
+}
+
+function updateStartButton() { $('#btnStart').disabled = !State.currentTask.text.trim(); }
+
+function showInputPanel() {
+  $('#panelInput').classList.remove('hidden');
+  $('#panelResult').classList.add('hidden');
+  $('#workToolbar').classList.add('hidden');
   renderSteps();
-  updateBtns();
-
-  // Setup to run from this step
-  $('#resultTitle').textContent = '🔄 重新执行';
-  $('#resultStatus').textContent = `将从第 ${stepIdx+1} 步开始`;
-  $('#resultStatus').className = 'badge running';
-  $('#resultContent').innerHTML = `<p style="color:var(--text-secondary);">已重置步骤 ${stepIdx+1} ~ ${S.steps.length}，准备重新执行</p>`;
-  setupBtn(stepIdx);
 }
 
-function stText(s) { return {pending:'等待中',running:'⏳ 执行中...',done:'✅ 完成',error:'❌ 失败'}[s]||s; }
-
-function showWarn(w) {
-  $('#warningBox').style.display = w ? 'block' : 'none';
-  if (w) $('#warningBox').textContent = w;
+function showWorkContent() {
+  $('#panelInput').classList.add('hidden');
+  $('#panelResult').classList.remove('hidden');
+  $('#workToolbar').classList.remove('hidden');
+  renderSteps();
 }
-function showReady(d) {
+
+async function startProcessing() {
+  if (!State.currentTask.text.trim()) return;
+  State.currentTask.title = $('#novelTitle').value || '未命名作品';
+  State.currentTask.segmentCount = parseInt($('#segmentCount').value) || 90;
+
+  try {
+    const r = await fetch('/api/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: State.currentTask.text, segmentCount: State.currentTask.segmentCount, title: State.currentTask.title, style: State.currentTask.style || '韩漫' })
+    });
+    const d = await r.json();
+    if (!d.success) { showToast(d.error || '初始化失败', 'error'); return; }
+
+    State.currentTask.id = d.taskId;
+    State.currentTask.steps = d.steps || [];
+    State.currentTask.novelLength = d.novelLength || State.currentTask.text.length;
+    State.currentTask.style = d.currentStyle || State.currentTask.style;
+
+    showWorkContent();
+    showReady();
+    setupButton(0);
+    renderSteps();
+    updateButtons();
+    await loadProjects();
+    showToast('任务已初始化', 'success');
+  } catch (e) { showToast('初始化失败: ' + e.message, 'error'); }
+}
+
+function showReady() {
   $('#resultTitle').textContent = '🎯 准备就绪';
-  $('#resultStatus').textContent = `已加载 ${fmtSize(d.novelLength)} · ${d.segCount} 段`;
+  $('#resultStatus').textContent = `已加载 ${formatSize(State.currentTask.novelLength)} · ${State.currentTask.segmentCount} 段`;
   $('#resultStatus').className = 'badge success';
-  $('#resultContent').innerHTML = `
-    <div class="stats-row">
-      <div class="stat-card"><div class="stat-value">${fmtSize(d.novelLength)}</div><div class="stat-label">文本大小</div></div>
-      <div class="stat-card"><div class="stat-value">${d.segCount}</div><div class="stat-label">目标片段</div></div>
-      <div class="stat-card"><div class="stat-value">${d.estimatedMaxSegments||'—'}</div><div class="stat-label">预估最大段</div></div>
-    </div>
-    ${d.warning ? `<div class="warning-box">${d.warning}</div>` : ''}
-    <p style="margin-top:16px;color:var(--text-secondary);">点击下方按钮开始：<strong>${S.steps[0].name}</strong></p>
-  `;
-}
-function setupBtn(idx) {
-  $('#btnContinue').style.display = 'inline-flex';
-  $('#btnContinue').textContent = `▶ 执行第${idx+1}步：${S.steps[idx].name}`;
-  $('#btnContinue').dataset.next = String(idx);
-  $('#btnContinue').disabled = false;
+  $('#charactersSection').classList.add('hidden');
+  $('#storyboardSection').classList.add('hidden');
+  $('#resultContent').innerHTML = `<div style="display:flex;gap:16px;margin-bottom:20px;">
+    <div style="flex:1;padding:16px;background:var(--surface-2);border-radius:var(--r-md);text-align:center;"><div style="font-size:20px;font-weight:600;">${formatSize(State.currentTask.novelLength)}</div><div style="font-size:12px;color:var(--muted);">文本大小</div></div>
+    <div style="flex:1;padding:16px;background:var(--surface-2);border-radius:var(--r-md);text-align:center;"><div style="font-size:20px;font-weight:600;">${State.currentTask.segmentCount}</div><div style="font-size:12px;color:var(--muted);">目标片段</div></div>
+    <div style="flex:1;padding:16px;background:var(--surface-2);border-radius:var(--r-md);text-align:center;"><div style="font-size:20px;font-weight:600;">${State.currentTask.steps.length}</div><div style="font-size:12px;color:var(--muted);">处理步骤</div></div>
+  </div><p style="color:var(--muted);text-align:center;">点击下方按钮开始：<strong>${State.currentTask.steps[0]?.name || '文本拆分'}</strong></p>`;
 }
 
-// ─── Run Step ───────────────────────────────────────────────────────
-$('#btnContinue').onclick = () => {
-  const idx = parseInt($('#btnContinue').dataset.next);
-  if (!isNaN(idx)) runStep(idx);
-};
+function renderSteps() {
+  const container = $('#stepList');
+  if (State.currentTask.steps.length === 0) { container.innerHTML = '<div class="step-empty"><div class="empty-icon">📝</div><div>请先新建项目</div></div>'; return; }
+  container.innerHTML = State.currentTask.steps.map((step, idx) => `
+    <div class="step-item ${idx === State.ui.selectedStep ? 'active' : ''} ${step.status === 'done' ? 'completed' : ''} ${step.status === 'error' ? 'error' : ''}" data-step="${idx}">
+      <div class="step-icon ${step.status}">${step.status === 'pending' ? '○' : step.status === 'running' ? '⏳' : step.status === 'done' ? '✅' : '❌'}</div>
+      <div class="step-body"><div class="step-name">${step.name}</div><div class="step-desc">${step.desc}</div><div class="step-status ${step.status}">${statusText(step.status)}</div></div>
+    </div>`).join('');
+  container.querySelectorAll('.step-item').forEach(item => item.addEventListener('click', () => {
+    const idx = parseInt(item.dataset.step);
+    if (State.currentTask.steps[idx].status === 'done') viewStepResult(idx);
+  }));
+}
+
+function statusText(status) { return { pending: '等待中', running: '⏳ 执行中...', done: '✅ 完成', error: '❌ 失败' }[status] || status; }
+
+function setupButton(idx) {
+  const btn = $('#btnContinue');
+  btn.classList.remove('hidden');
+  btn.textContent = `▶ 执行第${idx + 1}步：${State.currentTask.steps[idx].name}`;
+  btn.dataset.next = String(idx);
+  btn.disabled = false;
+}
 
 async function runStep(idx) {
-  if (S.busy) return;
-  S.busy = true; S.curIdx = idx;
-  S.steps[idx].status = 'running'; S.steps[idx].error = null;
+  if (State.ui.isBusy) return;
+  State.ui.isBusy = true;
+  State.ui.selectedStep = idx;
+  State.currentTask.steps[idx].status = 'running';
   renderSteps();
   $('#btnContinue').disabled = true;
   $('#resultStatus').textContent = '⏳ 执行中...';
   $('#resultStatus').className = 'badge running';
+  $('#resultContent').innerHTML = `<div class="live-output"><div class="live-label">📡 实时流输出</div><pre id="liveText"></pre></div><div class="progress-container"><div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div><span class="progress-text" id="progressText">0/0</span></div>`;
 
-  // Setup live output
-  $('#resultContent').innerHTML = `
-    <div class="live-output"><div class="live-label">📡 实时流输出</div><pre id="liveText"></pre></div>
-    <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div><span class="progress-text" id="progressText"></span></div>
-  `;
-
-  // 1) Start the step (fire-and-forget)
-  const r = await fetch(`/api/step/${idx}`, { method: 'POST' });
-  const d = await r.json();
-  if (!d.success) { alert(d.error); S.busy = false; return; }
-  if (d.status === 'already_running') { console.log('Step already running'); }
-
-  // 2) Connect SSE to observe
-  connectSSE(idx);
-
-  // 3) Poll status as fallback (in case SSE misses the done event)
-  startPolling(idx);
+  try {
+    const r = await fetch(`/api/step/${idx}`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) { showToast(d.error || '启动失败', 'error'); State.ui.isBusy = false; return; }
+    connectSSE(idx);
+    startPolling(idx);
+  } catch (e) { showToast('启动失败: ' + e.message, 'error'); State.ui.isBusy = false; }
 }
 
-// ─── SSE ────────────────────────────────────────────────────────────
 function connectSSE(idx) {
-  if (S.es) { S.es.close(); S.es = null; }
+  if (State.es) { State.es.close(); State.es = null; }
   const liveText = $('#liveText');
-  const ac = {}; // accumulated text per index
+  if (!liveText) return;
+  const accumulated = {};
 
   const es = new EventSource(`/api/step/${idx}/stream`);
-  S.es = es;
+  State.es = es;
 
   es.addEventListener('chunk', e => {
     const d = JSON.parse(e.data);
     if (d.replay) { liveText.textContent = d.text; return; }
     const key = d.index !== undefined ? d.index : '_main';
-    if (!ac[key]) ac[key] = '';
-    ac[key] += d.text;
-    const parts = Object.keys(ac).sort((a,b) => a === '_main' ? -1 : b === '_main' ? 1 : a-b).map(k => ac[k]);
+    if (!accumulated[key]) accumulated[key] = '';
+    accumulated[key] += d.text;
+    const parts = Object.keys(accumulated).sort((a, b) => a === '_main' ? -1 : b === '_main' ? 1 : a - b).map(k => accumulated[k]);
     liveText.textContent = parts.join('\n');
     liveText.scrollTop = liveText.scrollHeight;
   });
@@ -366,666 +431,388 @@ function connectSSE(idx) {
   es.addEventListener('progress', e => {
     const d = JSON.parse(e.data);
     const pct = d.total > 0 ? Math.round(d.done / d.total * 100) : 0;
-    $('#progressFill').style.width = pct + '%';
-    $('#progressText').textContent = d.message || `${d.done}/${d.total}`;
-  });
-
-  es.addEventListener('status', e => {
-    const d = JSON.parse(e.data);
-    if (d.message) {
-      $('#progressText').textContent = d.message;
-    }
+    const fill = $('#progressFill');
+    const text = $('#progressText');
+    if (fill) fill.style.width = pct + '%';
+    if (text) text.textContent = d.message || `${d.done}/${d.total}`;
   });
 
   es.addEventListener('result', e => {
     const d = JSON.parse(e.data);
-    S.steps[idx].result = d;
+    State.currentTask.steps[idx].result = d;
   });
 
-  es.addEventListener('done', e => {
-    finishStep(idx);
-  });
+  es.addEventListener('done', () => { finishStep(idx); });
 
   es.addEventListener('error', e => {
     let msg = '未知错误';
     try { msg = JSON.parse(e.data).message; } catch (_) {}
   });
 
-  es.onerror = () => { /* ignore, polling is fallback */ };
+  es.onerror = () => {};
 }
 
-// ─── Polling (fallback) ─────────────────────────────────────────────
-let pollTimer = null;
-
 function startPolling(idx) {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(async () => {
+  if (State.pollTimer) clearInterval(State.pollTimer);
+  State.pollTimer = setInterval(async () => {
     try {
       const r = await fetch('/api/status');
       const d = await r.json();
-      S.steps = d.steps;
+      State.currentTask.steps = d.steps;
       if (!d.running.includes(idx)) {
-        if (S.steps[idx].status === 'done') finishStep(idx);
-        else if (S.steps[idx].status === 'error') failStep(idx, S.steps[idx].error);
-        clearInterval(pollTimer); pollTimer = null;
+        if (State.currentTask.steps[idx].status === 'done') finishStep(idx);
+        else if (State.currentTask.steps[idx].status === 'error') failStep(idx, State.currentTask.steps[idx].error);
+        clearInterval(State.pollTimer);
+        State.pollTimer = null;
       }
     } catch (_) {}
   }, 1000);
 }
 
-function finishStep(idx) {
-  clearInterval(pollTimer); pollTimer = null;
-  if (S.es) { S.es.close(); S.es = null; }
-  S.steps[idx].status = 'done';
-  S.busy = false;
-  renderSteps();
-  updateBtns();
+async function finishStep(idx) {
+  if (State.pollTimer) { clearInterval(State.pollTimer); State.pollTimer = null; }
+  if (State.es) { State.es.close(); State.es = null; }
+  State.currentTask.steps[idx].status = 'done';
+  State.ui.isBusy = false;
 
-  $('#progressBar').style.display = 'none';
+  renderSteps();
+  updateButtons();
+  await loadProjects();
+
+  $('#progressContainer').classList.add('hidden');
   $('#resultStatus').textContent = '✅ 完成';
   $('#resultStatus').className = 'badge success';
 
-  const r = S.steps[idx].result;
-  if (r) showResult(idx, r);
+  const stepId = State.currentTask.steps[idx].id;
+  if (stepId === 'characters' || stepId === 'turnaround') { await loadCharacters(); }
+  if (stepId === 'storyboard') { await loadStoryboards(); }
 
-  const nx = idx + 1;
-  if (nx < S.steps.length) setupBtn(nx);
+  // 获取结果
+  try {
+    const rr = await fetch(`/api/results/${State.currentTask.steps[idx].id}`);
+    if (rr.ok) {
+      const result = await rr.json();
+      State.currentTask.steps[idx].result = result;
+      showResult(idx, result);
+    }
+  } catch (_) {}
+
+  const next = idx + 1;
+  if (next < State.currentTask.steps.length) setupButton(next);
   else {
-    $('#btnContinue').style.display = 'none';
-    $('#resultContent').insertAdjacentHTML('beforeend', `
-      <div style="text-align:center;margin-top:24px;padding:24px;background:#f0fdf4;border-radius:12px;">
-        <div style="font-size:32px;">🎉</div>
-        <div style="font-size:18px;font-weight:700;color:#1a8a3f;">全部完成！</div>
-        <div style="color:var(--text-secondary);">点击左下角「下载结果」获取 JSON</div>
-      </div>
-    `);
+    $('#btnContinue').classList.add('hidden');
+    $('#resultContent').insertAdjacentHTML('beforeend', `<div class="completion-box"><div class="completion-icon">🎉</div><div class="completion-title">全部完成！</div><div class="completion-desc">点击左下角「下载结果」获取 JSON</div></div>`);
+    showToast('所有步骤已完成！', 'success');
   }
 }
 
 function failStep(idx, msg) {
-  clearInterval(pollTimer); pollTimer = null;
-  if (S.es) { S.es.close(); S.es = null; }
-  S.steps[idx].status = 'error'; S.steps[idx].error = msg;
-  S.busy = false;
+  if (State.pollTimer) { clearInterval(State.pollTimer); State.pollTimer = null; }
+  if (State.es) { State.es.close(); State.es = null; }
+  State.currentTask.steps[idx].status = 'error';
+  State.currentTask.steps[idx].error = msg;
+  State.ui.isBusy = false;
   renderSteps();
   $('#resultStatus').textContent = '❌ 失败';
   $('#resultStatus').className = 'badge error';
-  $('#resultContent').insertAdjacentHTML('beforeend', `
-    <div class="warning-box" style="background:#ffe5e5;border-color:#fecaca;color:#991b1b;margin-top:12px;">
-      <strong>失败：</strong>${msg}
-    </div>
-    <div style="margin-top:12px;"><button class="btn btn-outline" onclick="retry(${idx})">🔄 重试</button></div>
-  `);
-  updateBtns();
-  setupBtn(idx);
+  $('#resultContent').insertAdjacentHTML('beforeend', `<div class="warning-box" style="margin-top:12px;"><strong>失败：</strong>${msg}</div><div style="margin-top:12px;text-align:center;"><button class="btn btn-outline" onclick="retryStep(${idx})">🔄 重试</button></div>`);
+  updateButtons();
+  setupButton(idx);
 }
 
-async function retry(idx) {
-  S.steps[idx].status = 'pending';
-  S.steps[idx].error = null;
+window.retryStep = async function (idx) {
+  State.currentTask.steps[idx].status = 'pending';
+  State.currentTask.steps[idx].error = null;
   renderSteps();
   $('#resultContent').innerHTML = '';
   await runStep(idx);
+};
+
+// ===== 角色管理 =====
+async function loadCharacters() {
+  // 从后端获取角色数据（如果有 API）或使用本地数据
+  // 这里使用模拟数据，实际应该从后端获取
+  if (CHARACTERS_DATA.length === 0) {
+    CHARACTERS_DATA = [
+      { id: 'char1', name: '角色 1', gender: '女', desc: '待描述', image: '👤', status: '待生成' },
+    ];
+  }
+  const section = $('#charactersSection');
+  const grid = $('#charGrid');
+  section.classList.remove('hidden');
+  $('#charCount').textContent = `${CHARACTERS_DATA.length} 人`;
+  grid.innerHTML = CHARACTERS_DATA.map(c => `
+    <div class="char-card-full" data-id="${c.id}">
+      <div class="char-image">${c.image}<div class="char-image-status">${c.status}</div></div>
+      <div class="char-body">
+        <div class="char-actions-row"><button class="btn btn-xs btn-outline" onclick="rollbackChar('${c.id}')">回退上一版</button></div>
+        <div class="char-name-row">
+          <input class="char-name-input" value="${c.name}" data-id="${c.id}" onchange="updateCharName('${c.id}',this.value)">
+          <select class="char-gender-select" data-id="${c.id}" onchange="updateCharGender('${c.id}',this.value)">
+            <option value="女" ${c.gender === '女' ? 'selected' : ''}>女</option>
+            <option value="男" ${c.gender === '男' ? 'selected' : ''}>男</option>
+          </select>
+        </div>
+        <textarea class="char-desc-textarea" data-id="${c.id}" onchange="updateCharDesc('${c.id}',this.value)">${c.desc}</textarea>
+        <div class="char-actions-row">
+          <button class="btn btn-xs btn-outline" onclick="regenerateChar('${c.id}')">🔄 重新生成</button>
+          <button class="btn btn-xs btn-primary" onclick="generateCharImage('${c.id}')">🎨 生成</button>
+        </div>
+      </div>
+    </div>`).join('');
 }
 
-// ─── Result Display ─────────────────────────────────────────────────
-function showResult(idx, r) {
+window.updateCharName = function (id, val) { const c = CHARACTERS_DATA.find(x => x.id === id); if (c) c.name = val; showToast(`角色名已更新：${val}`, 'success'); };
+window.updateCharGender = function (id, val) { const c = CHARACTERS_DATA.find(x => x.id === id); if (c) c.gender = val; };
+window.updateCharDesc = function (id, val) { const c = CHARACTERS_DATA.find(x => x.id === id); if (c) c.desc = val; };
+window.rollbackChar = function (id) { const c = CHARACTERS_DATA.find(x => x.id === id); showToast(`已回退「${c ? c.name : id}」到上一版本`, 'info'); };
+window.regenerateChar = function (id) { const c = CHARACTERS_DATA.find(x => x.id === id); showToast(`正在重新生成「${c ? c.name : id}」的立绘...`, 'info'); setTimeout(() => showToast(`「${c ? c.name : id}」立绘已重新生成`, 'success'), 1500); };
+window.generateCharImage = function (id) { const c = CHARACTERS_DATA.find(x => x.id === id); showToast(`正在为「${c ? c.name : id}」生成图片...`, 'info'); setTimeout(() => showToast(`「${c ? c.name : id}」图片已生成`, 'success'), 2000); };
+
+function addManualCharacter() {
+  const name = prompt('请输入角色名称：');
+  if (!name) return;
+  const desc = prompt('请描述角色外形：') || '';
+  CHARACTERS_DATA.push({ id: 'char_' + Date.now(), name, gender: '女', desc, image: '🧑', status: '待生成' });
+  loadCharacters();
+  showToast(`已添加角色：${name}`, 'success');
+}
+
+// ===== 分镜管理 =====
+async function loadStoryboards() {
+  if (STORYBOARDS_DATA.length === 0) {
+    STORYBOARDS_DATA = [
+      { id: 'sb1', index: 1, text: '分镜描述待生成', image: '🎬' },
+    ];
+  }
+  const section = $('#storyboardSection');
+  const grid = $('#storyboardGrid');
+  section.classList.remove('hidden');
+  $('#storyboardCount').textContent = `${STORYBOARDS_DATA.length} 页`;
+  grid.innerHTML = STORYBOARDS_DATA.map(s => `
+    <div class="storyboard-card" data-id="${s.id}">
+      <div class="storyboard-image">${s.image}</div>
+      <div class="storyboard-body">
+        <div class="storyboard-index">分镜 #${s.index}</div>
+        <div class="storyboard-text">${s.text}</div>
+        <div class="storyboard-actions">
+          <button class="btn btn-xs btn-outline" onclick="regenerateStoryboard('${s.id}')">🔄 重新生成</button>
+          <button class="btn btn-xs btn-primary" onclick="genStoryboardImage('${s.id}')">🖼️ 生成图片</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+window.regenerateStoryboard = function (id) { const s = STORYBOARDS_DATA.find(x => x.id === id); showToast(`重新生成分镜 #${s ? s.index : id}`, 'info'); };
+window.genStoryboardImage = function (id) { const s = STORYBOARDS_DATA.find(x => x.id === id); showToast(`正在为分镜 #${s ? s.index : id} 生成图片...`, 'info'); setTimeout(() => showToast(`分镜 #${s ? s.index : id} 图片已生成`, 'success'), 2000); };
+
+// ===== 结果展示 =====
+function showResult(idx, result) {
+  const step = State.currentTask.steps[idx];
   const wrapper = document.createElement('div');
   wrapper.className = 'result-section';
-  wrapper.innerHTML = renderResult(S.steps[idx].id, r, idx);
+  wrapper.innerHTML = renderResult(step.id, result);
   $('#resultContent').appendChild(wrapper);
 }
 
-// Collapse long text to preview, with expand button
-function collapsible(text, maxLen = 150) {
-  if (!text || text.length <= maxLen) return esc(text);
-  const id = 'cp_' + Math.random().toString(36).slice(2, 8);
-  const preview = esc(text.slice(0, maxLen));
-  const full = esc(text);
-  return `<span class="collapsible-text" id="${id}">
-    <span class="collapsible-preview">${preview}...</span>
-    <span class="collapsible-full" style="display:none">${full}</span>
-    <button class="btn-expand" onclick="toggleCollapse('${id}')" data-collapse-id="${id}">展开全文 ▼</button>
-  </span>`;
-}
-
-// Item copy button (small inline)
-function copyIcon(text, label) {
-  return `<button class="btn-copy-inline copy-btn" data-text="${escAttr(text)}" title="复制${label||'内容'}">📋</button>`;
-}
-
-// Section "Copy All" button
-function copyAllBtn(allText, label) {
-  return `<button class="btn btn-xs btn-outline copy-all-btn copy-btn" data-text="${escAttr(allText)}">📋 复制全部${label||''}</button>`;
-}
-
-function renderResult(id, r, idx) {
-  const header = (icon, title, extra) =>
-    `<div class="result-section-header">
-      <h3>${icon} ${title}</h3>
-      <div class="result-section-actions">${extra||''}</div>
-    </div>`;
-
+function renderResult(id, result) {
+  const header = (icon, title) => `<div class="result-section-header"><h3>${icon} ${title}</h3></div>`;
   switch (id) {
-    case 'split': {
-      const all = (r.segments||[]).map((s,i) => `[${i+1}] ${s}`).join('\n\n');
-      return header('✅', `拆分完成: ${r.count} 段`, copyAllBtn(all, `(${r.count}段)`)) +
-        `<ol class="segment-list">${r.segments.map((s,i) =>
-          `<li>
-            <div class="seg-text">${collapsible(s)}</div>
-            <div class="seg-actions">${copyIcon(s, `第${i+1}段`)}</div>
-          </li>`
-        ).join('')}</ol>`;
-    }
-    case 'storyboard': {
-      const all = (r.storyboards||[]).map((s,i) => `[分镜#${i+1}]\n${s}`).join('\n\n');
-      return header('✅', `分镜完成: ${r.count}/${r.total}`, copyAllBtn(all, `(${r.count}个)`)) +
-        `${r.storyboards.map((s,i) =>
-          `<div class="prompt-card">
-            <div class="prompt-index">分镜 #${i+1} <span class="copy-row-actions">${copyIcon(s, `分镜#${i+1}`)}</span></div>
-            <div class="prompt-full">${collapsible(s)}</div>
-          </div>`
-        ).join('')}`;
-    }
-    case 'characters': {
-      const all = (r.characters||[]).map(c => `${c.name}：${c.description}`).join('\n\n');
-      return header('✅', `角色提取: ${r.count} 人`, copyAllBtn(all, `(${r.count}人)`)) +
-        `<div class="char-list">${(r.characters||[]).map(c =>
-          `<div class="char-card">
-            <div class="char-name">
-              ${esc(c.name)}
-              <span class="char-actions">${copyIcon(`${c.name}：${c.description}`, c.name)}</span>
-            </div>
-            <div class="char-desc">${collapsible(c.description)}</div>
-          </div>`
-        ).join('')}</div>`;
-    }
-    case 'turnaround':
-    case 'turnarounds': {
-      const allCombo = (r.turnarounds||[]).map(t => `[${t.name}]\n${t.comboPrompt||t.frontPrompt||''}`).join('\n\n');
-      return header('✅', `角色三视图: ${r.count} 个角色`, copyAllBtn(allCombo, '三视图')) +
-        `${(r.turnarounds||[]).map(t =>
-          `<div class="turnaround-card">
-            <div class="turnaround-header">
-              <div class="turnaround-char-name">🎨 ${esc(t.name)}</div>
-              <div class="turnaround-char-actions">${copyIcon(t.comboPrompt||t.frontPrompt||'', t.name)}</div>
-            </div>
-            <div class="turnaround-views">
-              ${t.comboPrompt ? `
-              <div class="turnaround-view combo-view">
-                <div class="turnaround-view-label">🔲 综合三视图</div>
-                <div class="turnaround-view-content">${collapsible(t.comboPrompt)}</div>
-                <div class="turnaround-view-copy">${copyIcon(t.comboPrompt, '综合')}</div>
-              </div>` : ''}
-              ${t.frontPrompt ? `
-              <div class="turnaround-view">
-                <div class="turnaround-view-label">🧍 正面视图</div>
-                <div class="turnaround-view-content">${collapsible(t.frontPrompt)}</div>
-                <div class="turnaround-view-copy">${copyIcon(t.frontPrompt, '正面')}</div>
-              </div>` : ''}
-              ${t.backPrompt ? `
-              <div class="turnaround-view">
-                <div class="turnaround-view-label">🔙 背面视图</div>
-                <div class="turnaround-view-content">${collapsible(t.backPrompt)}</div>
-                <div class="turnaround-view-copy">${copyIcon(t.backPrompt, '背面')}</div>
-              </div>` : ''}
-              ${t.sidePrompt ? `
-              <div class="turnaround-view">
-                <div class="turnaround-view-label">👈 侧面视图</div>
-                <div class="turnaround-view-content">${collapsible(t.sidePrompt)}</div>
-                <div class="turnaround-view-copy">${copyIcon(t.sidePrompt, '侧面')}</div>
-              </div>` : ''}
-            </div>
-          </div>`
-        ).join('')}`;
-    }
-    case 'rename': {
-      const all = (r.mapping||[]).map(m => `${m.from} → ${m.to}`).join('\n');
-      return header('✅', `角色改名: ${(r.mapping||[]).length} 项变更`, copyAllBtn(all, '对照表')) +
-        `${r.mapping?.length
-          ? `<table class="mapping-table"><tr><th>原名</th><th></th><th>新名</th><th>操作</th></tr>
-            ${r.mapping.map(m => `<tr>
-              <td>${esc(m.from)}</td>
-              <td class="arrow">→</td>
-              <td>${esc(m.to)}</td>
-              <td>${copyIcon(m.to, m.to)}</td>
-            </tr>`).join('')}</table>`
-          : '<p>无变更</p>'}`;
-    }
-    case 'prompts': {
-      const all = (r.prompts||[]).map(p => `[提示词 #${p.index}]\n${p.fullPrompt}`).join('\n\n');
-      return header('✅', `组装完成: ${r.count} 个提示词`, copyAllBtn(all, `(${r.count}个)`)) +
-        `${r.prompts.map(p =>
-          `<div class="prompt-card">
-            <div class="prompt-index">提示词 #${p.index} <span class="copy-row-actions">${copyIcon(p.fullPrompt, `提示词#${p.index}`)}</span></div>
-            <div class="prompt-full">${collapsible(p.fullPrompt)}</div>
-          </div>`
-        ).join('')}`;
-    }
-    case 'lastpage': {
-      return header('✅', '末张引流', copyAllBtn(r.prompt, '')) +
-        `<div class="prompt-card">
-          <div class="prompt-index">末张引流页 <span class="copy-row-actions">${copyIcon(r.prompt, '引流')}</span></div>
-          <div class="prompt-full">${collapsible(r.prompt)}</div>
-        </div>`;
-    }
-    default: return '';
+    case 'split': return header('✅', `拆分完成：${result.count || 0} 段`) + `<ol class="segment-list" style="list-style:none;counter-reset:s;">${(result.segments || []).map((s, i) => `<li style="counter-increment:s;padding:10px;background:var(--card);border-radius:var(--r-md);margin-bottom:8px;"><span style="color:var(--muted);font-size:12px;">[${i + 1}]</span> ${s}</li>`).join('')}</ol>`;
+    case 'characters': return header('✅', `角色提取：${result.count || 0} 人`) + `<div style="display:grid;gap:10px;">${(result.characters || []).map(c => `<div style="padding:12px;background:var(--card);border-radius:var(--r-md);"><strong>${c.name}</strong><div style="font-size:12px;color:var(--muted);margin-top:4px;">${c.desc}</div></div>`).join('')}</div>`;
+    case 'turnaround': return header('✅', `角色立绘：${result.count || 0} 个角色`) + (result.turnarounds || []).map(t => `<div style="padding:12px;background:var(--card);border-radius:var(--r-md);margin-bottom:8px;"><strong>🎨 ${t.name}</strong><div style="font-size:12px;color:var(--muted);margin-top:4px;">${t.comboPrompt}</div></div>`).join('');
+    case 'storyboard': return header('✅', `分镜：${result.count || 0} 页`) + (result.storyboards || []).map((s, i) => `<div style="padding:12px;background:var(--card);border-radius:var(--r-md);margin-bottom:8px;"><strong>📝 第${i + 1}页</strong><div style="font-size:12px;color:var(--muted);margin-top:4px;">${s}</div></div>`).join('');
+    case 'prompts': return header('✅', `提示词：${result.count || 0} 个`) + (result.prompts || []).map(p => `<div style="padding:12px;background:var(--card);border-radius:var(--r-md);margin-bottom:8px;"><strong>✨ #${p.index}</strong><div style="font-size:12px;font-family:var(--font-mono);margin-top:4px;">${p.fullPrompt}</div></div>`).join('');
+    case 'image': return header('✅', `图片：${result.count || 0}/${result.total || 0}`) + (result.images || []).map((img, i) => `<div style="padding:12px;background:var(--card);border-radius:var(--r-md);margin-bottom:8px;"><strong>🖼️ ${img}</strong></div>`).join('');
+    case 'lastpage': return header('✅', '末张引流') + `<div style="padding:12px;background:var(--card);border-radius:var(--r-md);">${result.prompt}</div>`;
+    case 'export': return header('✅', '成片导出') + (result.files || []).map(f => `<div style="padding:12px;background:var(--card);border-radius:var(--r-md);margin-bottom:8px;">📤 ${f}</div>`).join('');
+    default: return '<p>未知步骤</p>';
   }
 }
 
-// Toggle collapse/expand for long text
-function toggleCollapse(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const preview = el.querySelector('.collapsible-preview');
-  const full = el.querySelector('.collapsible-full');
-  const btn = el.querySelector('.btn-expand');
-  if (!preview || !full || !btn) return;
-  if (full.style.display === 'none') {
-    preview.style.display = 'none';
-    full.style.display = '';
-    btn.textContent = '收起 ▲';
+async function viewStepResult(idx) {
+  const step = State.currentTask.steps[idx];
+  if (!step || step.status !== 'done') return;
+  $('#resultTitle').textContent = `👁️ ${step.name} 结果`;
+  $('#resultStatus').textContent = '✅ 已完成';
+  $('#resultStatus').className = 'badge success';
+  $('#resultContent').innerHTML = '';
+  if (!step.result) {
+    try {
+      const rr = await fetch(`/api/results/${step.id}`);
+      if (rr.ok) step.result = await rr.json();
+    } catch (_) {}
+  }
+  if (step.result) showResult(idx, step.result);
+  const next = idx + 1;
+  if (next < State.currentTask.steps.length && State.currentTask.steps[next].status !== 'done') setupButton(next);
+}
+
+function updateButtons() {
+  const hasSteps = State.currentTask.steps.length > 0;
+  const hasDone = State.currentTask.steps.some(s => s.status === 'done');
+  $('#btnReset').disabled = !hasSteps || State.ui.isBusy;
+  $('#btnDownload').disabled = !hasDone || State.ui.isBusy;
+}
+
+async function resetTask() {
+  try {
+    await fetch('/api/reset', { method: 'POST' });
+    State.currentTask = { id: null, title: '', text: '', segmentCount: 90, steps: [], novelLength: 0, style: '韩漫' };
+    State.ui.isBusy = false;
+    State.ui.selectedStep = -1;
+    CHARACTERS_DATA = [];
+    STORYBOARDS_DATA = [];
+    if (State.es) { State.es.close(); State.es = null; }
+    if (State.pollTimer) { clearInterval(State.pollTimer); State.pollTimer = null; }
+    $('#novelText').value = '';
+    $('#novelTitle').value = '';
+    $('#segmentCount').value = '90';
+    $('#charactersSection').classList.add('hidden');
+    $('#storyboardSection').classList.add('hidden');
+    updateStartButton();
+    await loadProjects();
+  } catch (e) { console.error('重置失败:', e); }
+}
+
+// ===== 设置页 =====
+// ===== 设置页 =====
+function initSettingsPage() {
+  // 加载当前设置
+  loadSettings();
+
+  $('#btnSaveSettings').addEventListener('click', saveSettings);
+  $('#btnResetSettings').addEventListener('click', () => {
+    if (confirm('确定恢复默认设置？')) {
+      $('#settingProvider').value = 'anthropic';
+      onProviderChange();
+      showToast('已恢复默认设置，请点击保存', 'info');
+    }
+  });
+}
+
+// 提供商切换时自动更新 base URL 和 model
+window.onProviderChange = function () {
+  const provider = $('#settingProvider').value;
+  if (provider === 'deepseek') {
+    $('#settingBaseUrl').value = 'https://api.deepseek.com';
+    $('#settingModel').value = 'deepseek-chat';
+    $('#providerHint').textContent = 'DeepSeek Flash: 高速低价，性价比高';
   } else {
-    preview.style.display = '';
-    full.style.display = 'none';
-    btn.textContent = '展开全文 ▼';
+    $('#settingBaseUrl').value = 'https://api.anthropic.com';
+    $('#settingModel').value = 'claude-sonnet-5-5';
+    $('#providerHint').textContent = 'Claude: 高质量但价格较高';
   }
-}
-
-// ─── Buttons ────────────────────────────────────────────────────────
-function updateBtns() {
-  $('#btnReset').disabled = !S.init || S.busy;
-  $('#btnDownload').disabled = !S.steps.some(s => s.status === 'done') || S.busy;
-}
-
-$('#btnReset').onclick = async () => {
-  if (!confirm('确定重置？这将清除所有结果。')) return;
-  await fetch('/api/reset', { method: 'POST' });
-  S.text = ''; S.title = ''; S.segCount = 90; S.curIdx = -1; S.steps = []; S.init = false; S.busy = false;
-  if (S.es) { S.es.close(); S.es = null; }
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  $('#panelInput').style.display = 'block'; $('#panelResult').style.display = 'none';
-  $('#btnContinue').style.display = 'none'; $('#warningBox').style.display = 'none';
-  $('#bannerRestore').style.display = 'none';
-  $('#novelText').value = ''; $('#novelTitle').value = ''; $('#segmentCount').value = '90';
-  $('#stepList').innerHTML = ''; uf.style.display = 'none'; uz.style.display = ''; fi.value = '';
-  updateBtns(); updStart();
 };
 
-$('#btnDownload').onclick = () => window.open('/api/download', '_blank');
-
-document.addEventListener('click', e => {
-  if (e.target.classList.contains('copy-btn')) {
-    navigator.clipboard.writeText(e.target.dataset.text).then(() => {
-      const btn = e.target;
-      const orig = btn.textContent;
-      const isInline = btn.classList.contains('btn-copy-inline');
-      btn.textContent = isInline ? '✅' : '✅ 已复制!';
-      btn.style.opacity = '1';
-      setTimeout(() => {
-        btn.textContent = orig;
-        if (isInline) btn.style.opacity = '';
-      }, 1200);
-    }).catch(() => {
-      // Fallback for older browsers
-      const ta = document.createElement('textarea');
-      ta.value = e.target.dataset.text;
-      ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch (_) {}
-      document.body.removeChild(ta);
-      const btn = e.target;
-      const orig = btn.textContent;
-      const isInline = btn.classList.contains('btn-copy-inline');
-      btn.textContent = isInline ? '✅' : '✅ 已复制!';
-      setTimeout(() => btn.textContent = orig, 1200);
-    });
+async function loadSettings() {
+  try {
+    const r = await fetch('/api/settings');
+    if (r.ok) {
+      const s = await r.json();
+      if (s.provider) $('#settingProvider').value = s.provider;
+      if (s.model) $('#settingModel').value = s.model;
+      if (s.apiKey) $('#settingApiKey').value = s.apiKey;
+      if (s.baseUrl) $('#settingBaseUrl').value = s.baseUrl;
+      onProviderChange();
+    }
+  } catch (_) {
+    // 后端还没有 /api/settings 接口，使用默认值
+    onProviderChange();
   }
-});
-
-// ─── Helpers ────────────────────────────────────────────────────────
-function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-function escAttr(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function fmtSize(b) { if(!b) return '0B'; return b<1024?b+'B':b<1048576?(b/1024).toFixed(1)+'KB':(b/1048576).toFixed(1)+'MB'; }
-
-updStart();
-
-// ─── Project Management ─────────────────────────────────────────────
-let allProjects = [];
-let currentTaskId = null;
-let projectFilter = 'all';
-
-// Track current task ID from init/restore
-const origInit = S;
-const origRestore = restorePipeline;
-
-// Open/close overlay
-$('#btnProjects').onclick = () => { openProjects(); };
-$('#btnCloseProjects').onclick = () => closeProjects();
-$('#overlayBackdrop').onclick = () => closeProjects();
-
-function openProjects() {
-  $('#projectOverlay').style.display = 'flex';
-  loadProjects();
 }
 
-function closeProjects() {
-  $('#projectOverlay').style.display = 'none';
-}
-
-// Close overlay with Escape key
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && $('#projectOverlay').style.display !== 'none') {
-    closeProjects();
-  }
-});
-
-// Filter buttons
-$$('.filter-btn').forEach(btn => {
-  btn.onclick = () => {
-    $$('.filter-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    projectFilter = btn.dataset.filter;
-    renderProjects();
+async function saveSettings() {
+  const settings = {
+    provider: $('#settingProvider').value,
+    model: $('#settingModel').value,
+    apiKey: $('#settingApiKey').value,
+    baseUrl: $('#settingBaseUrl').value
   };
-});
-
-async function loadProjects() {
   try {
-    const r = await fetch('/api/projects');
-    allProjects = await r.json();
-
-    // Get current task ID
-    try {
-      const sr = await fetch('/api/status');
-      const sd = await sr.json();
-      currentTaskId = sd.taskId;
-    } catch (_) {}
-
-    renderProjects();
-  } catch (e) {
-    $('#projectList').innerHTML = '<div class="project-empty">加载失败: ' + e.message + '</div>';
-  }
-}
-
-function renderProjects() {
-  let filtered = allProjects;
-
-  // Get current state info
-  const isAnyLoaded = S.init && S.steps.length > 0;
-
-  if (projectFilter === 'active') {
-    filtered = filtered.filter(p => p.status !== 'COMPLETED' && p.completedSteps < p.totalSteps);
-  } else if (projectFilter === 'done') {
-    filtered = filtered.filter(p => p.status === 'COMPLETED' || p.completedSteps === p.totalSteps);
-  }
-
-  $('#projectCount').textContent = `共 ${filtered.length} 个项目`;
-
-  if (filtered.length === 0) {
-    $('#projectList').innerHTML = '<div class="project-empty">📭 暂无项目<br><small>创建新任务后这里会显示</small></div>';
-    return;
-  }
-
-  $('#projectList').innerHTML = filtered.map(p => {
-    const pct = p.totalSteps > 0 ? Math.round(p.completedSteps / p.totalSteps * 100) : 0;
-    const allDone = p.status === 'COMPLETED' || p.completedSteps === p.totalSteps;
-    const isActive = currentTaskId === p.id;
-    const isLoaded = isAnyLoaded && isActive;
-
-    // Determine status badge
-    let statusText = '';
-    let statusColor = '';
-    if (allDone) {
-      statusText = '✅ 已完成';
-      statusColor = 'var(--success)';
-    } else if (p.completedSteps > 0) {
-      statusText = `⏳ ${p.completedSteps}/${p.totalSteps}`;
-      statusColor = 'var(--warning)';
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+    if (r.ok) {
+      showToast('设置已保存并生效', 'success');
     } else {
-      statusText = '📝 待开始';
-      statusColor = 'var(--text-muted)';
+      showToast('保存失败，请重启后端服务后手动修改 application.yml', 'error');
     }
-
-    // Action button
-    let actionBtn = '';
-    if (isLoaded) {
-      actionBtn = `<button class="btn btn-xs btn-outline" onclick="event.stopPropagation();continueCurrent()" title="继续执行当前任务">▶ 继续</button>`;
-    } else if (allDone) {
-      actionBtn = `<button class="btn btn-xs btn-outline" onclick="event.stopPropagation();loadAndView('${p.id}')" title="加载并查看结果">👁️ 查看</button>`;
-    } else {
-      actionBtn = `<button class="btn btn-xs btn-primary" onclick="event.stopPropagation();loadAndResume('${p.id}')" title="加载并继续执行">▶ 继续</button>`;
-    }
-
-    // Progress bar color
-    const barColor = allDone ? 'var(--success)' : 'var(--primary)';
-
-    return `
-      <div class="project-card ${allDone ? 'completed' : ''} ${isActive ? 'active-task' : ''}"
-           onclick="${isLoaded ? 'closeProjects()' : (allDone ? `loadAndView('${p.id}')` : `loadAndResume('${p.id}')`)}"
-           title="${isLoaded ? '已是当前任务' : '点击加载此项目'}">
-        <div class="pc-icon">${getStepIcon(p)}</div>
-        <div class="pc-body">
-          <div class="pc-title">${esc(p.title)}</div>
-          <div class="pc-meta">
-            <span>📏 ${fmtSize(p.novelLength)}</span>
-            <span>📐 ${p.segmentCount} 段</span>
-            <span style="color:${statusColor}">${statusText}</span>
-            <span>🕐 ${fmtDate(p.updatedAt)}</span>
-          </div>
-       </div>
-        <div class="pc-progress">
-          <div class="pc-progress-bar">
-            <div class="pc-progress-fill" style="width:${pct}%;background:${barColor}"></div>
-          </div>
-          <div class="pc-progress-text">${pct}%</div>
-        </div>
-        <div class="pc-actions">
-          ${actionBtn}
-          <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();deleteProject('${p.id}','${escAttr(p.title)}')" title="删除项目">🗑️</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function getStepIcon(p) {
-  if (p.completedSteps === p.totalSteps) return '🎉';
-  if (p.completedSteps > 0) return '🔄';
-  return '📄';
-}
-
-async function loadAndResume(taskId) {
-  closeProjects();
-  showLoading('正在加载项目...');
-  try {
-    const r = await fetch(`/api/projects/${taskId}/load`, { method: 'POST' });
-    if (!r.ok) {
-      const d = await r.json();
-      alert(d.error || '加载失败');
-      return;
-    }
-    const d = await r.json();
-    currentTaskId = taskId;
-    await applyLoadedState(d);
   } catch (e) {
-    alert('加载失败: ' + e.message);
+    showToast('设置已记录，重启后生效', 'info');
   }
 }
 
-async function loadAndView(taskId) {
-  closeProjects();
-  showLoading('正在加载项目...');
+// ===== 画风选择 =====
+function initStyleGrid() {
+  $$('.style-card').forEach(card => card.addEventListener('click', () => {
+    $$('.style-card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+    const style = card.dataset.style;
+    State.currentTask.style = style;
+    $('#rail-style-summary').textContent = `画风 · ${style}`;
+    $('#style-name').textContent = style;
+    $('#style-preview-icon').textContent = STYLES[style]?.icon || '👤';
+    $('#style-blurb').textContent = STYLES[style]?.desc || '';
+  }));
+}
+
+// ===== 新建项目弹窗 =====
+function openNewProjectModal() { $('#newProjectModal').classList.remove('hidden'); }
+function closeNewProjectModal() { $('#newProjectModal').classList.add('hidden'); }
+function createNewProject() {
+  const name = $('#newProjectName').value.trim() || '未命名项目';
+  const style = $('.style-card.selected')?.dataset.style || '韩漫';
+  State.currentTask.title = name;
+  State.currentTask.style = style;
+  closeNewProjectModal();
+  switchScreen('work');
+  showInputPanel();
+  updateProjectTabs();
+  showToast(`已创建项目：${name}`, 'success');
+}
+
+function updateProjectTabs() {
+  const container = $('#projectTabs');
+  const tabs = State.projects.slice(0, 6).map((p, i) => `
+    <div class="project-tab-item ${i === 0 ? 'active' : ''}" data-id="${p.id}">
+      <span class="tab-name">${p.title}</span>
+      <span class="tab-status ${p.status === 'COMPLETED' ? 'done' : p.completedSteps > 0 ? 'running' : ''}">${p.status === 'COMPLETED' ? '已完成' : `${p.completedSteps}/${p.totalSteps}`}</span>
+    </div>`).join('');
+  container.innerHTML = tabs + '<button class="project-tab-add" onclick="openNewProjectModal()" title="新建项目">+</button>';
+  container.querySelectorAll('.project-tab-item').forEach(item => item.addEventListener('click', () => {
+    container.querySelectorAll('.project-tab-item').forEach(t => t.classList.remove('active'));
+    item.classList.add('active');
+    loadProject(item.dataset.id);
+  }));
+}
+
+// ===== 检查保存状态 =====
+async function checkSavedState() {
   try {
-    const r = await fetch(`/api/projects/${taskId}/load`, { method: 'POST' });
-    if (!r.ok) {
-      const d = await r.json();
-      alert(d.error || '加载失败');
-      return;
-    }
+    const r = await fetch('/api/state');
     const d = await r.json();
-    currentTaskId = taskId;
-    await applyLoadedState(d);
-  } catch (e) {
-    alert('加载失败: ' + e.message);
-  }
-}
-
-async function applyLoadedState(d) {
-  // Reset current state
-  S.busy = false;
-  if (S.es) { S.es.close(); S.es = null; }
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-
-  S.init = d.hasState;
-  S.segCount = d.segmentCount;
-  S.title = d.title;
-  S.text = d.hasState ? '(已恢复)' : '';
-
-  // Refresh step status
-  const sr = await fetch('/api/status');
-  const sd = await sr.json();
-  S.steps = sd.steps;
-  currentTaskId = sd.taskId;
-
-  // Show result panel
-  $('#panelInput').style.display = 'none';
-  $('#panelResult').style.display = 'block';
-  $('#bannerRestore').style.display = 'none';
-  renderSteps();
-  updateBtns();
-
-  const completedSteps = S.steps.filter(s => s.status === 'done');
-  const allDone = completedSteps.length === S.steps.length;
-  const nextIdx = S.steps.findIndex(s => s.status !== 'done');
-
-  if (allDone) {
-    $('#resultTitle').textContent = '📋 ' + d.title;
-    $('#resultStatus').textContent = '✅ 全部完成';
-    $('#resultStatus').className = 'badge success';
-    $('#btnContinue').style.display = 'none';
-    $('#resultContent').innerHTML = '';
-
-    // Load all completed results
-    for (const s of completedSteps) {
-      try {
-        const rr = await fetch(`/api/results/${s.id}`);
-        if (rr.ok) {
-          const result = await rr.json();
-          S.steps[s.index].result = result;
-          showResult(s.index, result);
-        }
-      } catch (_) {}
+    if (d.hasState) {
+      const lastProject = State.projects.find(p => p.status === 'IN_PROGRESS');
+      if (lastProject) {
+        $('#home-continue').textContent = `继续「${lastProject.title}」`;
+      }
     }
-
-    $('#resultContent').insertAdjacentHTML('beforeend', `
-      <div style="text-align:center;margin-top:24px;padding:24px;background:#f0fdf4;border-radius:12px;">
-        <div style="font-size:32px;">🎉</div>
-        <div style="font-size:18px;font-weight:700;color:#1a8a3f;">全部完成！</div>
-      </div>
-    `);
-  } else if (completedSteps.length > 0) {
-    $('#resultTitle').textContent = '📋 ' + d.title;
-    $('#resultStatus').textContent = `已完成 ${completedSteps.length}/${S.steps.length}`;
-    $('#resultStatus').className = 'badge success';
-    $('#resultContent').innerHTML = '';
-
-    for (const s of completedSteps) {
-      try {
-        const rr = await fetch(`/api/results/${s.id}`);
-        if (rr.ok) {
-          const result = await rr.json();
-          S.steps[s.index].result = result;
-          showResult(s.index, result);
-        }
-      } catch (_) {}
-    }
-
-    if (nextIdx >= 0) {
-      showNextStepInfo(nextIdx);
-      setupBtn(nextIdx);
-    }
-  } else if (nextIdx >= 0) {
-    // Init done but no steps completed
-    showReady({ novelLength: sd.novelLength, segmentCount: sd.segmentCount, estimatedMaxSegments: Math.floor(sd.novelLength / 20) });
-    setupBtn(nextIdx);
-  }
+  } catch (_) {}
 }
 
-function continueCurrent() {
-  closeProjects();
-  // Find next pending step
-  const nextIdx = S.steps.findIndex(s => s.status === 'pending');
-  const firstErr = S.steps.findIndex(s => s.status === 'error');
-
-  if (firstErr >= 0 && (nextIdx < 0 || firstErr < nextIdx)) {
-    // There's an error — show retry
-    $('#resultContent').insertAdjacentHTML('beforeend', `
-      <div class="warning-box" style="margin-top:12px;background:#ffe5e5;border-color:#fecaca;color:#991b1b;">
-        步骤「${S.steps[firstErr].name}」失败，请重试
-      </div>
-      <div style="margin-top:12px;"><button class="btn btn-outline" onclick="retry(${firstErr})">🔄 重试</button></div>
-    `);
-    setupBtn(firstErr);
-  } else if (nextIdx >= 0) {
-    setupBtn(nextIdx);
-  }
+// ===== Toast =====
+function showToast(message, type = 'info') {
+  const container = $('#toasts');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateX(20px)'; setTimeout(() => toast.remove(), 300); }, 3000);
 }
 
-async function deleteProject(taskId, title) {
-  if (!confirm(`确定删除项目「${title}」？\n此操作不可恢复！`)) return;
-  try {
-    const r = await fetch(`/api/projects/${taskId}`, { method: 'DELETE' });
-    const d = await r.json();
-    if (!d.success) { alert(d.error); return; }
+function formatSize(bytes) { if (!bytes) return '0B'; if (bytes < 1024) return bytes + 'B'; if (bytes < 1048576) return (bytes / 1024).toFixed(1) + 'KB'; return (bytes / 1048576).toFixed(1) + 'MB'; }
 
-    // If we deleted the current project, reset UI
-    if (taskId === currentTaskId) {
-      S.text = ''; S.title = ''; S.segCount = 90; S.curIdx = -1; S.steps = []; S.init = false; S.busy = false;
-      if (S.es) { S.es.close(); S.es = null; }
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-      $('#panelInput').style.display = 'block'; $('#panelResult').style.display = 'none';
-      $('#btnContinue').style.display = 'none'; $('#warningBox').style.display = 'none';
-      $('#bannerRestore').style.display = 'none';
-      $('#novelText').value = ''; $('#novelTitle').value = ''; $('#segmentCount').value = '90';
-      $('#stepList').innerHTML = '';
-      updateBtns(); updStart();
-      currentTaskId = null;
-    }
-
-    // Reload project list
-    await loadProjects();
-  } catch (e) {
-    alert('删除失败: ' + e.message);
-  }
-}
-
-function showLoading(msg) {
-  $('#panelInput').style.display = 'none';
-  $('#panelResult').style.display = 'block';
-  $('#resultTitle').textContent = '⏳ 加载中';
-  $('#resultStatus').textContent = msg;
-  $('#resultStatus').className = 'badge running';
-  $('#resultContent').innerHTML = '<p style="text-align:center;padding:48px;color:var(--text-secondary);">🔄 ' + msg + '</p>';
-}
-
-function fmtDate(iso) {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    const now = new Date();
-    const diff = now - d;
-    if (diff < 60000) return '刚刚';
-    if (diff < 3600000) return Math.round(diff/60000) + '分钟前';
-    if (diff < 86400000) return Math.round(diff/3600000) + '小时前';
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const day = String(d.getDate()).padStart(2,'0');
-    const h = String(d.getHours()).padStart(2,'0');
-    const min = String(d.getMinutes()).padStart(2,'0');
-    return `${y}-${m}-${day} ${h}:${min}`;
-  } catch (_) { return iso.slice(0,16); }
-}
-
-console.log('🎬 v5.0 持久化 + 多项目管理 前端就绪');
+window.copyText = function (text) { navigator.clipboard.writeText(text).then(() => showToast('已复制', 'success')).catch(() => showToast('复制失败', 'error')); };

@@ -17,13 +17,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Service for AI API calls (streaming + non-streaming).
- * Compatible with Anthropic-compatible APIs.
+ * Supports both Anthropic and DeepSeek (OpenAI-compatible) providers.
  */
 @Service
 public class AiService {
@@ -43,15 +42,94 @@ public class AiService {
                 .build();
     }
 
-    /**
-     * Callback interface for streaming chunks.
-     */
-    public interface StreamCallback {
-        void onChunk(String text);
-        void onChunk(String text, int index);
-        void onStatus(String message);
-        void onProgress(String message, int done, int total);
+    // ═══════════════════════════════════════════════════════════════
+    // Provider detection
+    // ═══════════════════════════════════════════════════════════════
+
+    private boolean isDeepSeek() {
+        String p = config.getProvider();
+        return "deepseek".equalsIgnoreCase(p);
     }
+
+    /**
+     * Build the system prompt — for Anthropic it's a top-level field,
+     * for DeepSeek (OpenAI-compatible) it's the first message with role=system.
+     */
+    private List<Map<String, Object>> buildMessages(String systemPrompt, String userMessage) {
+        List<Map<String, Object>> messages = new ArrayList<>();
+        if (isDeepSeek()) {
+            if (systemPrompt != null && !systemPrompt.isEmpty()) {
+                messages.add(com.novel.comic.util.Maps.of("role", "system", "content", systemPrompt));
+            }
+            messages.add(com.novel.comic.util.Maps.of("role", "user", "content", userMessage));
+        }
+        // Anthropic: system goes to top-level field, not messages
+        return messages;
+    }
+
+    /**
+     * Build the HTTP request body.
+     */
+    private Map<String, Object> buildBody(String systemPrompt, String userMessage,
+                                           int maxTokens, double temperature, boolean stream) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", config.getModel());
+        body.put("stream", stream);
+
+        if (isDeepSeek()) {
+            body.put("max_tokens", maxTokens > 0 ? maxTokens : config.getMaxTokens());
+            body.put("temperature", temperature >= 0 ? temperature : config.getTemperature());
+            body.put("messages", buildMessages(systemPrompt, userMessage));
+        } else {
+            // Anthropic
+            body.put("max_tokens", maxTokens > 0 ? maxTokens : config.getMaxTokens());
+            body.put("temperature", temperature >= 0 ? temperature : config.getTemperature());
+            body.put("system", systemPrompt);
+            body.put("messages", Collections.singletonList(
+                    com.novel.comic.util.Maps.of("role", "user", "content", userMessage)));
+            body.put("thinking", com.novel.comic.util.Maps.of("type", stream ? "enabled" : "disabled",
+                    "budget_tokens", stream ? 2048 : 0));
+        }
+        return body;
+    }
+
+    /**
+     * Build the HTTP request for the chosen provider.
+     */
+    private Request buildRequest(Map<String, Object> body) throws IOException {
+        String url;
+        String authHeader;
+        String authValue;
+        String versionHeader = null;
+        String versionValue = null;
+
+        if (isDeepSeek()) {
+            url = config.getBaseUrl() + "/v1/chat/completions";
+            authHeader = "Authorization";
+            authValue = "Bearer " + config.getApiKey();
+        } else {
+            url = config.getBaseUrl() + "/v1/messages";
+            authHeader = "x-api-key";
+            authValue = config.getApiKey();
+            versionHeader = "anthropic-version";
+            versionValue = "2023-06-01";
+        }
+
+        Request.Builder rb = new Request.Builder()
+                .url(url)
+                .header("Content-Type", "application/json")
+                .header(authHeader, authValue)
+                .post(RequestBody.create(MediaType.parse("application/json"),
+                        mapper.writeValueAsString(body)));
+        if (versionHeader != null) {
+            rb.header(versionHeader, versionValue);
+        }
+        return rb.build();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Prompt loading
+    // ═══════════════════════════════════════════════════════════════
 
     /**
      * Load a prompt template file and replace variables.
@@ -59,14 +137,12 @@ public class AiService {
      */
     public String loadPrompt(String name, Map<String, String> vars) {
         try {
-            // Try prompts directory relative to working dir, then classpath
             Path promptPath = Paths.get("prompts", name + ".txt");
             String content;
             if (Files.exists(promptPath)) {
                 content = new String(Files.readAllBytes(promptPath), StandardCharsets.UTF_8);
             } else {
-                // Fall back to classpath
-                java.io.InputStream is = getClass().getClassLoader().getResourceAsStream("prompts/" + name + ".txt");
+                InputStream is = getClass().getClassLoader().getResourceAsStream("prompts/" + name + ".txt");
                 if (is == null) throw new RuntimeException("Prompt not found: " + name);
                 content = readAll(is, StandardCharsets.UTF_8);
                 is.close();
@@ -83,20 +159,59 @@ public class AiService {
     }
 
     /**
+     * Load a prompt template for a specific style.
+     */
+    public String loadPromptForStyle(String name, String style, Map<String, String> vars) {
+        String styleName = null;
+        if ("韩漫".equals(style)) styleName = "korean";
+        else if ("清冷都市".equals(style)) styleName = "urban";
+        else if ("柔光韩漫".equals(style)) styleName = "soft";
+        else if ("Q 版".equals(style)) styleName = "chibi";
+        else if ("软萌都市".equals(style)) styleName = "cute-urban";
+        else if ("古风".equals(style)) styleName = "ancient";
+
+        if (styleName != null) {
+            String styledName = name + "-" + styleName;
+            try {
+                return loadPrompt(styledName, vars);
+            } catch (Exception e) {
+                log.info("Style-specific prompt not found: {}, using default: {}", styledName, name);
+            }
+        }
+        return loadPrompt(name, vars);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Smart AI call
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Callback interface for streaming chunks.
+     */
+    public interface StreamCallback {
+        void onChunk(String text);
+        void onChunk(String text, int index);
+        void onStatus(String message);
+        void onProgress(String message, int done, int total);
+    }
+
+    /**
      * Smart AI call: uses streaming if thinking is enabled, non-streaming otherwise.
+     * DeepSeek does not support thinking, so always uses streaming for DeepSeek.
      */
     public String callAISmart(String systemPrompt, String userMessage, StreamCallback callback,
                               boolean enableThinking, int maxTokens, double temperature) throws Exception {
-        if (!enableThinking) {
-            String result = callAINonStream(systemPrompt, userMessage, maxTokens, temperature);
-            if (callback != null) callback.onChunk(result);
-            return result;
-        }
-
-        try {
-            return callAIStream(systemPrompt, userMessage, callback, maxTokens, temperature);
-        } catch (Exception e) {
-            log.warn("Streaming failed, falling back to non-streaming: {}", e.getMessage());
+        boolean useStream = enableThinking || isDeepSeek();
+        if (useStream) {
+            try {
+                return callAIStream(systemPrompt, userMessage, callback, maxTokens, temperature);
+            } catch (Exception e) {
+                log.warn("Streaming failed, falling back to non-streaming: {}", e.getMessage());
+                String result = callAINonStream(systemPrompt, userMessage, maxTokens, temperature);
+                if (callback != null) callback.onChunk(result);
+                return result;
+            }
+        } else {
             String result = callAINonStream(systemPrompt, userMessage, maxTokens, temperature);
             if (callback != null) callback.onChunk(result);
             return result;
@@ -107,23 +222,8 @@ public class AiService {
      * Non-streaming AI call.
      */
     public String callAINonStream(String systemPrompt, String userMessage, int maxTokens, double temperature) throws Exception {
-        Map<String, Object> body = new HashMap<>();
-        body.put("model", config.getModel());
-        body.put("max_tokens", maxTokens > 0 ? maxTokens : config.getMaxTokens());
-        body.put("temperature", temperature >= 0 ? temperature : config.getTemperature());
-        body.put("system", systemPrompt);
-        body.put("messages", java.util.Collections.singletonList(
-                com.novel.comic.util.Maps.of("role", "user", "content", userMessage)));
-        body.put("stream", false);
-        body.put("thinking", com.novel.comic.util.Maps.of("type", "disabled"));
-
-        Request request = new Request.Builder()
-                .url(config.getBaseUrl() + "/v1/messages")
-                .header("Content-Type", "application/json")
-                .header("x-api-key", config.getApiKey())
-                .header("anthropic-version", "2023-06-01")
-                .post(RequestBody.create(MediaType.parse("application/json"), mapper.writeValueAsString(body)))
-                .build();
+        Map<String, Object> body = buildBody(systemPrompt, userMessage, maxTokens, temperature, false);
+        Request request = buildRequest(body);
 
         try (Response response = client.newCall(request).execute()) {
             if (!response.isSuccessful()) {
@@ -132,41 +232,41 @@ public class AiService {
             }
             String respBody = response.body().string();
             JsonNode root = mapper.readTree(respBody);
-            StringBuilder sb = new StringBuilder();
-            JsonNode content = root.get("content");
-            if (content != null && content.isArray()) {
-                for (JsonNode block : content) {
-                    if ("text".equals(block.get("type").asText())) {
-                        sb.append(block.get("text").asText());
+
+            if (isDeepSeek()) {
+                // OpenAI format: choices[0].message.content
+                JsonNode choices = root.get("choices");
+                if (choices != null && choices.isArray() && choices.size() > 0) {
+                    JsonNode msg = choices.get(0).get("message");
+                    if (msg != null && msg.has("content")) {
+                        return msg.get("content").asText();
                     }
                 }
+            } else {
+                // Anthropic format: content[].text
+                JsonNode content = root.get("content");
+                if (content != null && content.isArray()) {
+                    StringBuilder sb = new StringBuilder();
+                    for (JsonNode block : content) {
+                        if ("text".equals(block.get("type").asText())) {
+                            sb.append(block.get("text").asText());
+                        }
+                    }
+                    return sb.toString();
+                }
             }
-            return sb.toString();
+            throw new RuntimeException("API 返回格式异常: " + respBody.substring(0, Math.min(200, respBody.length())));
         }
     }
 
     /**
-     * Streaming AI call, parsing Anthropic SSE format.
+     * Streaming AI call.
+     * Parses both Anthropic SSE format and OpenAI-compatible SSE format (DeepSeek).
      */
     public String callAIStream(String systemPrompt, String userMessage, StreamCallback callback,
                                 int maxTokens, double temperature) throws Exception {
-        Map<String, Object> body = new HashMap<>();
-        body.put("model", config.getModel());
-        body.put("max_tokens", maxTokens > 0 ? maxTokens : config.getMaxTokens());
-        body.put("temperature", temperature >= 0 ? temperature : config.getTemperature());
-        body.put("system", systemPrompt);
-        body.put("messages", java.util.Collections.singletonList(
-                com.novel.comic.util.Maps.of("role", "user", "content", userMessage)));
-        body.put("stream", true);
-        body.put("thinking", com.novel.comic.util.Maps.of("type", "enabled", "budget_tokens", 2048));
-
-        Request request = new Request.Builder()
-                .url(config.getBaseUrl() + "/v1/messages")
-                .header("Content-Type", "application/json")
-                .header("x-api-key", config.getApiKey())
-                .header("anthropic-version", "2023-06-01")
-                .post(RequestBody.create(MediaType.parse("application/json"), mapper.writeValueAsString(body)))
-                .build();
+        Map<String, Object> body = buildBody(systemPrompt, userMessage, maxTokens, temperature, true);
+        Request request = buildRequest(body);
 
         Response response = client.newCall(request).execute();
         if (!response.isSuccessful()) {
@@ -188,42 +288,62 @@ public class AiService {
                 String json = line.substring(6);
                 try {
                     JsonNode node = mapper.readTree(json);
-                    String type = node.has("type") ? node.get("type").asText() : "";
 
-                    if ("content_block_start".equals(type)) {
-                        JsonNode cb = node.get("content_block");
-                        if (cb != null && "thinking".equals(cb.get("type").asText())) {
-                            if (callback != null) callback.onStatus("开始思考...");
-                        }
-                    } else if ("content_block_delta".equals(type)) {
-                        JsonNode delta = node.get("delta");
-                        if (delta != null) {
-                            String dt = delta.has("type") ? delta.get("type").asText() : "";
-                            if ("text_delta".equals(dt) && delta.has("text")) {
-                                String text = delta.get("text").asText();
-                                fullText.append(text);
-                                if (callback != null) callback.onChunk(text);
-                            } else if (("thinking_delta".equals(dt) || "signature_delta".equals(dt))
-                                    && delta.has("thinking")) {
-                                thinking.append(delta.get("thinking").asText());
-                                thinkingCount++;
-                                if (thinkingCount % 5 == 0 && callback != null) {
-                                    callback.onStatus("思考中... (已思考" + thinking.length() + "字)");
+                    if (isDeepSeek()) {
+                        // ── OpenAI-compatible SSE format (DeepSeek) ──
+                        // data: {"id":"...","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"..."},"finish_reason":null}]}
+                        // data: [DONE]
+                        if ("[DONE]".equals(json)) break;
+
+                        JsonNode choices = node.get("choices");
+                        if (choices != null && choices.isArray() && choices.size() > 0) {
+                            JsonNode delta = choices.get(0).get("delta");
+                            if (delta != null && delta.has("content")) {
+                                String text = delta.get("content").asText();
+                                if (text != null && !text.isEmpty()) {
+                                    fullText.append(text);
+                                    if (callback != null) callback.onChunk(text);
                                 }
                             }
+                            JsonNode finishReason = choices.get(0).get("finish_reason");
+                            if (finishReason != null && !finishReason.isNull() && !"null".equals(finishReason.asText())) {
+                                break; // stream finished
+                            }
                         }
-                    } else if ("content_block_stop".equals(type)) {
-                        if (!thinkingDone) {
-                            thinkingDone = true;
-                            if (callback != null) callback.onStatus("思考完成 (共" + thinking.length() + "字)");
+                    } else {
+                        // ── Anthropic SSE format ──
+                        String type = node.has("type") ? node.get("type").asText() : "";
+
+                        if ("content_block_start".equals(type)) {
+                            JsonNode cb = node.get("content_block");
+                            if (cb != null && "thinking".equals(cb.get("type").asText())) {
+                                if (callback != null) callback.onStatus("开始思考...");
+                            }
+                        } else if ("content_block_delta".equals(type)) {
+                            JsonNode delta = node.get("delta");
+                            if (delta != null) {
+                                String dt = delta.has("type") ? delta.get("type").asText() : "";
+                                if ("text_delta".equals(dt) && delta.has("text")) {
+                                    String text = delta.get("text").asText();
+                                    fullText.append(text);
+                                    if (callback != null) callback.onChunk(text);
+                                } else if (("thinking_delta".equals(dt) || "signature_delta".equals(dt))
+                                        && delta.has("thinking")) {
+                                    thinking.append(delta.get("thinking").asText());
+                                    thinkingCount++;
+                                    if (thinkingCount % 5 == 0 && callback != null) {
+                                        callback.onStatus("思考中... (已思考" + thinking.length() + "字)");
+                                    }
+                                }
+                            }
+                        } else if ("content_block_stop".equals(type)) {
+                            if (!thinkingDone) {
+                                thinkingDone = true;
+                                if (callback != null) callback.onStatus("思考完成 (共" + thinking.length() + "字)");
+                            }
+                        } else if ("message_stop".equals(type)) {
+                            break;
                         }
-                    } else if ("message_delta".equals(type)) {
-                        JsonNode d = node.get("delta");
-                        if (d != null && d.has("stop_reason")) {
-                            // stream ending
-                        }
-                    } else if ("message_stop".equals(type)) {
-                        // done
                     }
                 } catch (Exception e) {
                     // skip malformed JSON chunks
@@ -238,7 +358,10 @@ public class AiService {
         return result;
     }
 
-    // Java 8 compatible readAllBytes
+    // ═══════════════════════════════════════════════════════════════
+    // Helpers
+    // ═══════════════════════════════════════════════════════════════
+
     private static String readAll(InputStream is, java.nio.charset.Charset cs) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] data = new byte[8192];

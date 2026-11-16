@@ -16,3 +16,29 @@ spring:
       max-request-size: 10MB
   jackson:
     default-property-inclusion: non_null
+
+# ─── AI Provider Configuration ─────────────────────────────────────
+# 切换 AI 提供商: anthropic / deepseek
+# ────────────────────────────────────────────────────────────────────
+# Anthropic (Claude):
+#   provider: anthropic
+#   base-url: https://api.anthropic.com
+#   model: claude-sonnet-5-5
+#
+# DeepSeek (Flash/V3):
+#   provider: deepseek
+#   base-url: https://api.deepseek.com
+#   model: deepseek-chat
+
+app:
+  provider: anthropic
+  api-key: ""
+  base-url: https://api.anthropic.com
+  model: claude-sonnet-5-5
+  max-tokens: 4096
+  temperature: 0.7
+  default-segments: 90
+  max-segments: 140
+  min-segment-chars: 50
+  output-dir: ./outputs
+  default-style: 韩漫

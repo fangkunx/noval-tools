@@ -59,8 +59,9 @@ public class PipelineController {
         int segCount = body.get("segmentCount") instanceof Number
                 ? ((Number) body.get("segmentCount")).intValue() : config.getDefaultSegments();
         String title = (String) body.getOrDefault("title", "未命名作品");
+        String style = (String) body.getOrDefault("style", config.getDefaultStyle());
 
-        return ResponseEntity.ok(pipelineService.init(text, segCount, title));
+        return ResponseEntity.ok(pipelineService.init(text, segCount, title, style));
     }
 
     // ─── Upload ──────────────────────────────────────────────────────
@@ -303,6 +304,34 @@ public class PipelineController {
     public ResponseEntity<Map<String, String>> reset() {
         pipelineService.clearStateFile();
         sseService.clearAll();
+        return ResponseEntity.ok(com.novel.comic.util.Maps.of("success", "true"));
+    }
+
+    // ─── Settings ───────────────────────────────────────────────────
+
+    @GetMapping("/settings")
+    public ResponseEntity<Map<String, String>> getSettings() {
+        Map<String, String> s = new LinkedHashMap<>();
+        s.put("provider", config.getProvider());
+        s.put("model", config.getModel());
+        s.put("baseUrl", config.getBaseUrl());
+        s.put("apiKey", config.getApiKey());
+        return ResponseEntity.ok(s);
+    }
+
+    @PostMapping("/settings")
+    public ResponseEntity<Map<String, String>> updateSettings(@RequestBody Map<String, String> body) {
+        String provider = body.get("provider");
+        String model = body.get("model");
+        String baseUrl = body.get("baseUrl");
+        String apiKey = body.get("apiKey");
+
+        if (provider != null) config.setProvider(provider);
+        if (model != null) config.setModel(model);
+        if (baseUrl != null) config.setBaseUrl(baseUrl);
+        if (apiKey != null) config.setApiKey(apiKey);
+
+        log.info("Settings updated: provider={}, model={}, baseUrl={}", provider, model, baseUrl);
         return ResponseEntity.ok(com.novel.comic.util.Maps.of("success", "true"));
     }
 }

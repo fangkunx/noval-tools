@@ -3,145 +3,263 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>小说转Q版火柴人漫画</title>
+  <title>窝瓜元梦漫画工坊</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
-  <div class="app">
-    <!-- Header -->
-    <header class="header">
-      <h1>🎬 小说转Q版火柴人漫画</h1>
-      <span class="version">v4.0</span>
-      <div class="header-actions">
-        <button class="btn btn-sm btn-header" id="btnProjects">📂 项目管理</button>
-      </div>
-    </header>
+<body data-screen="home">
+  <!-- Toast 通知 -->
+  <div id="toasts" class="toasts"></div>
 
-    <!-- Project List Overlay -->
-    <div class="overlay" id="projectOverlay" style="display:none;">
-      <div class="overlay-backdrop" id="overlayBackdrop"></div>
-      <div class="overlay-panel project-panel">
-        <div class="overlay-header">
-          <h2>📂 项目管理</h2>
-          <button class="btn btn-xs btn-outline" id="btnCloseProjects">✕ 关闭</button>
+  <!-- 新建项目弹窗 -->
+  <div class="modal-overlay hidden" id="newProjectModal">
+    <div class="modal">
+      <div class="modal-header"><h2>新建项目</h2><button class="modal-close" onclick="closeNewProjectModal()">✕</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>项目名称</label><input type="text" id="newProjectName" placeholder="请输入项目名称"></div>
+        <div class="form-group"><label>画幅</label><select id="newProjectAspect"><option>竖图 3:4 (爆款同款·推荐)</option><option>横图 4:3</option><option>正方形 1:1</option></select></div>
+        <div class="form-group"><label>生成画风</label><div class="style-grid" id="styleGrid">
+          <div class="style-card" data-style="韩漫"><div class="style-card-img">👤</div><div class="style-card-name">韩漫</div><div class="style-card-desc">竖屏条漫默认：真人比例、清晰线、柔光薄涂</div></div>
+          <div class="style-card" data-style="清冷都市"><div class="style-card-img">🏙️</div><div class="style-card-name">清冷都市</div><div class="style-card-desc">职场/都市韩漫：干净线稿、低饱和</div></div>
+          <div class="style-card" data-style="柔光韩漫"><div class="style-card-img">💫</div><div class="style-card-name">柔光韩漫</div><div class="style-card-desc">精致五官与柔和环境光</div></div>
+          <div class="style-card" data-style="Q版"><div class="style-card-img">🎭</div><div class="style-card-name">Q版</div><div class="style-card-desc">二头身、大眼、平涂马卡龙色</div></div>
+          <div class="style-card" data-style="软萌都市"><div class="style-card-img">🌸</div><div class="style-card-name">软萌都市</div><div class="style-card-desc">Q版三四头身·大眼柔光</div></div>
+          <div class="style-card" data-style="古风"><div class="style-card-img">🏮</div><div class="style-card-name">古风</div><div class="style-card-desc">2D 国风插画，多层平涂</div></div>
+        </div></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline" onclick="closeNewProjectModal()">取消</button><button class="btn btn-primary" onclick="createNewProject()">确定</button></div>
+    </div>
+  </div>
+
+  <!-- 顶部导航 -->
+  <header class="topbar">
+    <div class="brand" id="brand-home" title="回到首页">
+      <div class="brand-logo">🎬</div>
+      <span class="brand-text"><h1>窝瓜元梦漫画工坊</h1><em>元梦 · 把故事画成漫画</em></span>
+      <span class="ver-chip">v1.0.86</span>
+    </div>
+    <nav class="top-nav">
+      <button type="button" class="nav-btn is-on" data-screen="home">首页</button>
+      <button type="button" class="nav-btn" data-screen="projects">项目列表</button>
+      <button type="button" class="nav-btn" data-screen="work">工作台</button>
+      <button type="button" class="nav-btn" data-screen="settings">软件设置</button>
+    </nav>
+    <div class="topbar-right">
+      <button type="button" class="ghost-btn">教程</button>
+      <button type="button" class="ghost-btn">联系我们</button>
+      <button type="button" class="ghost-btn">激活</button>
+      <button type="button" class="ghost-btn" id="toggle-task">任务</button>
+    </div>
+  </header>
+
+  <!-- 首页 -->
+  <section id="screen-home" class="screen">
+    <div class="home-inner">
+      <div class="home-hero">
+        <div class="home-brand">
+          <div class="home-logo">🎬</div>
+          <div class="home-brand-text"><h2>窝瓜元梦漫画工坊</h2><p class="home-slogan">让每个创作者，都有自己的漫画</p></div>
         </div>
-        <div class="project-toolbar">
-          <div class="project-filter">
-            <button class="filter-btn active" data-filter="all">全部</button>
-            <button class="filter-btn" data-filter="active">进行中</button>
-            <button class="filter-btn" data-filter="done">已完成</button>
+        <div class="home-cta">
+          <button type="button" class="btn btn-primary" id="home-new">新建项目</button>
+          <button type="button" class="btn btn-outline" id="home-continue">继续上次</button>
+        </div>
+      </div>
+      <section class="home-sec">
+        <div class="home-sec-head"><h3>新手教程<span class="home-sec-sub">第一次用，照这八步做就行</span></h3><button type="button" class="ghost-btn" id="home-guide">打开教程</button></div>
+        <ol class="guide-steps">
+          <li><strong>新建项目</strong><span>起个项目名，进工作台左栏。</span></li>
+          <li><strong>粘贴小说</strong><span>把故事整段贴进左栏的文本框。</span></li>
+          <li><strong>改文</strong><span>先改正文再提取人物；不改会提醒同质化风险。</span></li>
+          <li><strong>提取人物</strong><span>按改后的正文认出角色。</span></li>
+          <li><strong>角色参考图</strong><span>给每个人出立绘或设定板（两种都能当出图参考图）。</span></li>
+          <li><strong>一键分镜</strong><span>只把文字切成一页一页，这时还没有图。</span></li>
+          <li><strong>生成描述词</strong><span>会顺便配好这一格的人物。</span></li>
+          <li><strong>生成图片</strong><span>字会画在图里。之后可从「成片导出」存分页图或视频。</span></li>
+        </ol>
+      </section>
+      <section class="home-sec home-sec-recent">
+        <div class="home-sec-head"><h3>最近项目</h3><button type="button" class="ghost-btn" id="home-more">全部项目</button></div>
+        <div id="home-recent" class="project-grid"></div>
+      </section>
+      <footer class="home-foot"><span class="hint" id="home-foot-meta"></span></footer>
+    </div>
+  </section>
+
+  <!-- 项目列表 -->
+  <section id="screen-projects" class="screen hidden">
+    <div class="page-head"><h2>项目列表</h2><button type="button" class="btn btn-primary" id="projects-new">新建项目</button></div>
+    <p class="hint">点卡片打开工作台。封面来自最新分镜图。</p>
+    <div class="project-toolbar">
+      <div class="project-filter">
+        <button class="filter-btn active" data-filter="all">全部</button>
+        <button class="filter-btn" data-filter="active">进行中</button>
+        <button class="filter-btn" data-filter="done">已完成</button>
+      </div>
+      <div class="project-count" id="projectCount">共 0 个项目</div>
+    </div>
+    <div id="project-list-body" class="project-grid"></div>
+  </section>
+
+  <!-- 工作台 -->
+  <main id="screen-work" class="screen hidden" style="display:none;">
+    <nav class="project-tabs" id="projectTabs"></nav>
+    <div class="work-layout">
+      <!-- 左侧边栏 -->
+      <aside class="side-panel">
+        <div class="rail-project">
+          <select id="work-select"><option>未命名项目</option></select>
+          <div class="row">
+            <button type="button" class="btn btn-outline btn-sm" id="new-work">+ 新建</button>
+            <button type="button" class="btn btn-outline btn-sm" id="open-projects">项目列表</button>
           </div>
-          <div class="project-count" id="projectCount"></div>
         </div>
-        <div class="project-list" id="projectList">
-          <div class="project-empty">加载中...</div>
+        <div class="rail-style">
+          <details open>
+            <summary id="rail-style-summary">画风 · 韩漫</summary>
+            <button type="button" class="style-btn" id="open-styles">
+              <div class="style-preview" id="style-preview-icon">👤</div>
+              <span class="style-info"><strong id="style-name">韩漫</strong><em class="hint" id="style-blurb">竖屏条漫默认</em></span>
+            </button>
+          </details>
         </div>
-      </div>
-    </div>
-
-    <!-- Restore Banner -->
-    <div class="restore-banner" id="bannerRestore" style="display:none;">
-      <div class="banner-icon">📂</div>
-      <div class="banner-info">
-        <div class="banner-title">检测到上次任务</div>
-        <div class="banner-detail"><span id="bannerTitle"></span> · <span id="bannerProgress"></span></div>
-      </div>
-      <div class="banner-actions">
-        <button class="btn btn-primary btn-sm" id="btnRestore">▶ 继续执行</button>
-        <button class="btn btn-outline btn-sm" id="btnRestoreNew">✕ 新建任务</button>
-      </div>
-    </div>
-
-    <!-- Main Layout -->
-    <div class="main-layout">
-
-      <!-- Left: Step Panel -->
-      <aside class="step-panel" id="stepPanel">
-        <h3>流水线步骤</h3>
+        <div class="rail-aspect">
+          <label>画幅</label>
+          <select id="aspect"><option>竖图 3:4 (爆款同款·推荐)</option><option>横图 4:3</option><option>正方形 1:1</option></select>
+        </div>
         <div class="step-list" id="stepList">
-          <!-- Populated by JS -->
+          <div class="step-empty"><div class="empty-icon">📝</div><div>请先新建项目</div></div>
         </div>
         <div class="step-actions">
-          <button class="btn btn-sm btn-outline" id="btnReset" disabled>🔄 重置</button>
-          <button class="btn btn-sm btn-outline" id="btnDownload" disabled>📥 下载结果</button>
+          <button class="btn btn-outline btn-sm" id="btnReset" disabled>🔄 重置</button>
+          <button class="btn btn-primary btn-sm" id="btnDownload" disabled>📥 下载结果</button>
         </div>
       </aside>
 
-      <!-- Right: Content Area -->
-      <main class="content-area">
+      <!-- 右侧内容区 -->
+      <div class="content-area">
+        <!-- 工具栏 -->
+        <div class="work-toolbar hidden" id="workToolbar">
+          <div class="toolbar-left">
+            <button class="btn btn-sm btn-outline">自动接管</button>
+            <button class="btn btn-sm btn-primary">书名提醒</button>
+            <button class="btn btn-sm btn-outline">钩子页</button>
+            <button class="btn btn-sm btn-outline">造型连贯性检查</button>
+          </div>
+          <div class="toolbar-right">
+            <button class="btn btn-sm btn-outline">批量操作</button>
+            <button class="btn btn-sm btn-success">成片导出</button>
+            <button class="btn btn-sm btn-outline">导出素材包</button>
+            <button class="btn btn-sm btn-outline">继续下一话</button>
+          </div>
+        </div>
 
-        <!-- Step 0: Input Phase -->
-        <section class="panel" id="panelInput">
-          <h2>📖 输入小说文本</h2>
+        <!-- 输入面板 -->
+        <section class="content-panel" id="panelInput">
+          <div class="panel-head"><h2>📖 输入小说文本</h2></div>
           <div class="input-tabs">
             <button class="tab active" data-tab="paste">📝 粘贴文本</button>
             <button class="tab" data-tab="upload">📁 上传文件</button>
           </div>
-
-          <!-- Paste Tab -->
           <div class="tab-content active" id="tabPaste">
-            <textarea id="novelText" placeholder="在此粘贴小说全文...&#10;&#10;或者切换到「上传文件」选项卡上传 .txt 文件"></textarea>
+            <textarea id="novelText" placeholder="在此粘贴小说全文..."></textarea>
           </div>
-
-          <!-- Upload Tab -->
           <div class="tab-content" id="tabUpload">
             <div class="upload-zone" id="uploadZone">
               <div class="upload-icon">📁</div>
               <p>拖拽 .txt 文件到此处，或点击选择文件</p>
-              <input type="file" id="fileInput" accept=".txt" hidden>
               <button class="btn btn-outline" id="btnSelectFile">选择文件</button>
-            </div>
-            <div class="upload-info" id="uploadInfo" style="display:none;">
-              <span class="file-icon">📄</span>
-              <span id="uploadFileName"></span>
-              <span class="file-size" id="uploadFileSize"></span>
-              <button class="btn btn-xs btn-outline" id="btnClearFile">✕</button>
+              <input type="file" id="fileInput" accept=".txt" hidden>
             </div>
           </div>
-
-          <!-- Settings -->
           <div class="settings-row">
-            <div class="setting">
-              <label for="segmentCount">拆分片段数：</label>
-              <input type="number" id="segmentCount" value="90" min="1" max="140" step="1">
-              <span class="hint">(1-140，默认90)</span>
-            </div>
-            <div class="setting">
-              <label for="novelTitle">作品标题：</label>
-              <input type="text" id="novelTitle" placeholder="未命名作品">
-            </div>
+            <div class="setting"><label for="segmentCount">拆分片段数：</label><input type="number" id="segmentCount" value="90" min="1" max="140"><span class="hint">(1-140，默认90)</span></div>
+            <div class="setting"><label for="novelTitle">作品标题：</label><input type="text" id="novelTitle" placeholder="未命名作品"></div>
           </div>
-
-          <div class="warning-box" id="warningBox" style="display:none;"></div>
-
-          <div class="action-row">
-            <button class="btn btn-primary btn-lg" id="btnStart">🚀 开始处理</button>
-          </div>
+          <div class="warning-box hidden" id="warningBox"></div>
+          <div class="action-row"><button class="btn btn-primary btn-lg" id="btnStart" disabled>🚀 开始处理</button></div>
         </section>
 
-        <!-- Step Results Panels -->
-        <section class="panel" id="panelResult" style="display:none;">
+        <!-- 结果面板 -->
+        <section class="content-panel hidden" id="panelResult">
           <div class="result-header">
             <h2 id="resultTitle">处理结果</h2>
-            <span class="badge" id="resultStatus"></span>
+            <span class="badge" id="resultStatus">等待中</span>
           </div>
-          <div class="progress-bar" id="progressBar" style="display:none;">
-            <div class="progress-fill" id="progressFill"></div>
-            <span class="progress-text" id="progressText"></span>
-          </div>
-          <div class="result-content" id="resultContent">
-            <!-- Filled by JS -->
-          </div>
-          <div class="action-row">
-            <button class="btn btn-primary btn-lg" id="btnContinue" style="display:none;">
-              ▶ 继续下一步
-            </button>
-          </div>
-        </section>
 
-      </main>
+          <!-- 人物素材区 -->
+          <div class="characters-section hidden" id="charactersSection">
+            <div class="section-header">
+              <h3>人物素材 <span class="hint" id="charCount">0 人</span></h3>
+              <div class="section-actions">
+                <button class="btn btn-sm btn-outline" id="btnViewAllSettings">全部看设定板</button>
+                <button class="btn btn-sm btn-primary" id="btnGenerateAll">一键补齐立绘</button>
+                <button class="btn btn-sm btn-outline" id="btnManualAdd">+ 手动添加</button>
+                <button class="btn btn-sm btn-outline" id="btnAssetLibrary">素材库</button>
+                <button class="btn btn-sm btn-outline" id="btnCollapseChars">收起人物</button>
+              </div>
+            </div>
+            <div class="char-grid" id="charGrid"></div>
+          </div>
+
+          <!-- 分镜区 -->
+          <div class="storyboard-section hidden" id="storyboardSection">
+            <div class="section-header">
+              <h3>分镜 <span class="hint" id="storyboardCount">0 页</span></h3>
+              <div class="section-actions">
+                <button class="btn btn-sm btn-outline">打开作品文件夹</button>
+              </div>
+            </div>
+            <div class="storyboard-grid" id="storyboardGrid"></div>
+          </div>
+
+          <div class="progress-container hidden" id="progressContainer">
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+            <span class="progress-text" id="progressText">0/0</span>
+          </div>
+
+          <div class="result-content" id="resultContent"></div>
+          <div class="action-row"><button class="btn btn-primary btn-lg hidden" id="btnContinue">▶ 执行下一步</button></div>
+        </section>
+      </div>
     </div>
-  </div>
+  </main>
+
+  <!-- 设置页 -->
+  <section id="screen-settings" class="screen hidden">
+    <div class="page-head"><h2>软件设置</h2></div>
+    <div class="settings-grid">
+      <div class="settings-card"><h3>🤖 AI 后端配置</h3>
+        <div class="form-group"><label>AI 提供商</label>
+          <select id="settingProvider" onchange="onProviderChange()">
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="deepseek">DeepSeek (Flash/V3)</option>
+          </select>
+          <span class="form-hint" id="providerHint">Claude: 高质量但价格较高</span>
+        </div>
+        <div class="form-group"><label>模型名称</label>
+          <input type="text" id="settingModel" placeholder="claude-sonnet-5-5">
+          <span class="form-hint">DeepSeek Flash 用 deepseek-chat</span>
+        </div>
+        <div class="form-group"><label>API Key</label>
+          <input type="password" id="settingApiKey" placeholder="sk-...">
+          <span class="form-hint">从 AI 服务商控制台获取</span>
+        </div>
+        <div class="form-group"><label>API Base URL</label>
+          <input type="text" id="settingBaseUrl" placeholder="https://api.anthropic.com">
+        </div>
+      </div>
+      <div class="settings-card"><h3>🎨 图片生成配置</h3>
+        <div class="form-group"><label>图片生成服务</label><select><option>Stable Diffusion</option><option>Midjourney</option><option>DALL-E 3</option></select></div>
+        <div class="form-group"><label>默认画风</label><select><option>Q版火柴人</option><option>日漫风格</option><option>韩漫风格</option></select></div>
+        <div class="form-group"><label>输出分辨率</label><select><option>512 x 512</option><option>768 x 768</option><option>1024 x 1024</option></select></div>
+      </div>
+      <div class="settings-card"><h3>📁 输出设置</h3>
+        <div class="form-group"><label>输出格式</label><select><option>JSON</option><option>ZIP 压缩包</option></select></div>
+        <div class="form-group"><label>输出路径</label><input type="text" placeholder="./output"></div>
+      </div>
+    </div>
+    <div class="settings-actions"><button class="btn btn-primary" id="btnSaveSettings">💾 保存设置</button><button class="btn btn-outline" id="btnResetSettings">重置默认</button></div>
+  </section>
 
   <script src="app.js"></script>
 </body>

@@ -76,15 +76,15 @@
 .side-panel-footer{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid #3a3a3a;background:#161616}
 
 /* Tab 样式 */
-.sp-tabs{display:flex;gap:0;border-bottom:2px solid #3a3a3a;background:#161616;padding:0 20px}
+.sp-tabs{display:flex;gap:0;border-bottom:2px solid #3a3a3a;background:#161616;padding:0 20px;flex-shrink:0}
 .sp-tab{flex:1;padding:10px 6px;background:transparent;border:0;border-bottom:2px solid transparent;color:#888;font-size:13px;cursor:pointer;transition:all .2s;margin-bottom:-2px}
 .sp-tab:hover{color:#ddd;background:rgba(255,255,255,.03)}
 .sp-tab.active{color:var(--teal);border-bottom-color:var(--teal);font-weight:600}
-.sp-tab-content{display:none}
-.sp-tab-content.active{display:block}
+.sp-section{margin-bottom:12px}
+.sp-section-title{color:#aaa;font-size:13px;font-weight:600;margin-bottom:6px;padding-left:2px}
 .comic-settings-modal{width:min(600px,94vw)}
 
-/* Tab 内容区 */
+/* 底部智能按钮 */
 .sp-section{margin-bottom:20px}
 .sp-label-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 .sp-label{color:#bbb;font-size:14px;font-weight:600}

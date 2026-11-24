@@ -729,10 +729,14 @@ document.addEventListener('click', async (e) => {
     case 'switch-preset-tab': {
       const tab = target.dataset.tab;
       if (!tab) break;
-      // 切换 tab 按钮状态
+      // 高亮 tab 按钮
       document.querySelectorAll('.sp-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-      // 切换内容显示
-      document.querySelectorAll('.sp-tab-content').forEach(c => c.classList.toggle('active', c.dataset.tabContent === tab));
+      // 滚动到对应 section
+      const section = document.querySelector(`.sp-section[data-section="${tab}"]`);
+      if (section) {
+        const body = document.getElementById('preset-panel-body');
+        if (body) body.scrollTo({ top: section.offsetTop - 10, behavior: 'smooth' });
+      }
       break;
     }
 
@@ -1041,37 +1045,31 @@ async function openPresetPanel() {
       <button class="sp-tab" data-tab="scene" data-action="switch-preset-tab">场景</button>
       <button class="sp-tab" data-tab="prop" data-action="switch-preset-tab">道具</button>
     </div>
-    <div class="side-panel-body">
-      <div class="sp-tab-content active" data-tab-content="all">
+    <div class="side-panel-body" id="preset-panel-body">
+      <div class="sp-section" data-section="all">
         <div class="preset-list" id="preset-all">${allItems || '<span class="muted">暂无预设</span>'}</div>
       </div>
-      <div class="sp-tab-content" data-tab-content="character">
-        <div class="sp-label-row">
-          <button class="btn-sm teal" data-action="add-preset-item" data-type="character">＋ 添加角色</button>
-          <button class="btn-sm" data-action="smart-character">智能生成</button>
-        </div>
+      <div class="sp-section" data-section="character">
+        <div class="sp-section-title">角色</div>
         <div class="preset-list" id="preset-characters">${chars || '<span class="muted">暂无角色</span>'}</div>
       </div>
-      <div class="sp-tab-content" data-tab-content="scene">
-        <div class="sp-label-row">
-          <button class="btn-sm teal" data-action="add-preset-item" data-type="scene">＋ 添加场景</button>
-          <button class="btn-sm" data-action="smart-scene">智能生成</button>
-        </div>
+      <div class="sp-section" data-section="scene">
+        <div class="sp-section-title">场景</div>
         <div class="preset-list" id="preset-scenes">${scenes || '<span class="muted">暂无场景</span>'}</div>
       </div>
-      <div class="sp-tab-content" data-tab-content="prop">
-        <div class="sp-label-row">
-          <button class="btn-sm teal" data-action="add-preset-item" data-type="prop">＋ 添加道具</button>
-          <button class="btn-sm" data-action="smart-prop">智能生成</button>
-        </div>
+      <div class="sp-section" data-section="prop">
+        <div class="sp-section-title">道具</div>
         <div class="preset-list" id="preset-props">${props || '<span class="muted">暂无道具</span>'}</div>
       </div>
-      <div class="sp-section" style="margin-top:20px;padding-top:16px;border-top:1px solid #3a3a3a">
+      <div class="sp-section" style="margin-top:10px;padding-top:14px;border-top:1px solid #3a3a3a">
         <label class="sp-label">剧情梗概</label>
         <textarea id="preset-plot-summary" class="sp-textarea" placeholder="输入剧情梗概...">${escapeHtml(preset.plotSummary || '')}</textarea>
       </div>
     </div>
     <div class="side-panel-footer">
+      <button class="btn-sm" data-action="smart-character">智能角色</button>
+      <button class="btn-sm" data-action="smart-scene">智能场景</button>
+      <button class="btn-sm" data-action="smart-prop">智能道具</button>
       <button class="btn" data-action="close-preset-panel">取消</button>
       <button class="btn gold" data-action="save-preset">保存预设</button>
     </div>`;

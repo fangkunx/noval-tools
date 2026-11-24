@@ -455,13 +455,25 @@ document.addEventListener('focusout', async (e) => {
 });
 
 document.addEventListener('click', async (e) => {
-  const target = e.target.closest('[data-view], [data-action], [data-novel-id], [data-filter-type], [data-close], [data-save]');
+  const target = e.target.closest('[data-view], [data-action], [data-novel-id], [data-filter-type], [data-close], [data-save], [data-tab]');
   if (!target) return;
 
   const viewName = target.dataset.view;
   const action = target.dataset.action;
   const novelId = target.dataset.novelId;
   const filterType = target.dataset.filterType;
+  const tabName = target.dataset.tab;
+
+  // Tab 切换（最高优先级）
+  if (tabName && target.matches('.sp-tab')) {
+    document.querySelectorAll('.sp-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+    const section = document.querySelector(`.sp-section[data-section="${tabName}"]`);
+    if (section) {
+      const body = document.getElementById('preset-panel-body');
+      if (body) body.scrollTo({ top: section.offsetTop - 10, behavior: 'smooth' });
+    }
+    return;
+  }
 
   // 导航切换
   if (viewName) {
@@ -816,7 +828,24 @@ document.addEventListener('click', async (e) => {
     case 'smart-character':
     case 'smart-scene':
     case 'smart-prop': {
-      notify('智能推理功能需要配置 API Key，待实现');
+      const type = action.replace('smart-', '');
+      if (!currentNovelId) { notify('请先选择小说'); return; }
+      try {
+        const typeName = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
+        notify(`正在智能生成${typeName}...`);
+        const result = await api(`/api/presets/smart?novelId=${currentNovelId}&type=${type}`, { method: 'POST' });
+        const listId = type === 'character' ? 'preset-characters' : type === 'scene' ? 'preset-scenes' : 'preset-props';
+        const listEl = document.querySelector(`#${listId}`);
+        if (listEl && result.items) {
+          listEl.innerHTML = result.items.length > 0
+            ? result.items.map(item => renderPresetItem(item, type)).join('')
+            : `<span class="muted">暂无${typeName}</span>`;
+          refreshAllPresetList();
+        }
+        notify(`已生成 ${result.items?.length || 0} 个${typeName}`);
+      } catch (err) {
+        notify('智能生成失败: ' + err.message);
+      }
       break;
     }
 
@@ -1198,6 +1227,19 @@ function collectPresetItems(type) {
     if (name.trim()) items.push({ name: name.trim(), description: desc.trim(), type: type.toUpperCase(), imageUrl: '' });
   });
   return items;
+}
+
+function refreshAllPresetList() {
+  const allEl = document.querySelector('#preset-all');
+  if (!allEl) return;
+  const chars = document.querySelectorAll('#preset-characters .preset-item');
+  const scenes = document.querySelectorAll('#preset-scenes .preset-item');
+  const props = document.querySelectorAll('#preset-props .preset-item');
+  let html = '';
+  chars.forEach(el => html += el.outerHTML);
+  scenes.forEach(el => html += el.outerHTML);
+  props.forEach(el => html += el.outerHTML);
+  allEl.innerHTML = html || '<span class="muted">暂无预设</span>';
 }
 
 loadNovelList();

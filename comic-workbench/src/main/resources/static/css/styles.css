@@ -98,16 +98,35 @@
 .preset-list{display:flex;flex-direction:column;gap:6px}
 .preset-card{display:flex;align-items:center;gap:10px;background:#1e252b;border:1px solid #2a3138;border-radius:6px;padding:10px 12px;transition:border-color .15s}
 .preset-card:hover{border-color:#3a444d}
+.preset-card--editing{border-color:#00d4aa}
 .preset-check{accent-color:#00d4aa;flex-shrink:0}
-.preset-card-main{flex:1;display:flex;flex-direction:column;gap:5px;min-width:0}
-.preset-card-name{background:transparent;border:0;color:#f0f4f8;font-size:14px;font-weight:700;outline:none;padding:0;min-width:0}
-.preset-card-name:focus{border-bottom:1px solid #00d4aa}
-.preset-card-desc{background:#15191c;border:1px solid #2a3138;border-radius:3px;color:#a0b4c4;font-size:12px;padding:6px 8px;outline:none;line-height:1.6}
-.preset-card-desc:focus{border-color:#00d4aa}
-.preset-card-del{background:transparent;border:1px solid #c0392b;color:#e74c3c;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;flex-shrink:0}
-.preset-card-del:hover{background:#c0392b;color:#fff}
+.preset-card-main{flex:1;display:flex;flex-direction:column;gap:4px;min-width:0}
+.preset-card-title{color:#f0f4f8;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preset-card-desc{color:#8899aa;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preset-card-actions{display:flex;gap:4px;flex-shrink:0}
+.preset-act-add{background:transparent;border:1px solid #00d4aa;color:#00d4aa;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer}
+.preset-act-add:hover{background:#00d4aa;color:#062b22}
+.preset-act-edit{background:transparent;border:1px solid #00a884;color:#00d4aa;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer}
+.preset-act-edit:hover{background:#00a884;color:#fff}
+.preset-act-del{background:transparent;border:1px solid #c0392b;color:#e74c3c;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer}
+.preset-act-del:hover{background:#c0392b;color:#fff}
+.preset-act-cancel{background:transparent;border:1px solid #555;color:#aaa;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer}
+.preset-edit-name{background:#15191c;border:1px solid #2a3138;color:#f0f4f8;border-radius:3px;padding:4px 8px;font-size:13px;font-weight:700;outline:none;min-width:120px}
+.preset-edit-name:focus{border-color:#00d4aa}
+.preset-edit-desc{background:#15191c;border:1px solid #2a3138;color:#a0b4c4;border-radius:3px;padding:4px 8px;font-size:12px;outline:none;flex:1}
+.preset-edit-desc:focus{border-color:#00d4aa}
 /* 底部按钮行 */
 .sp-footer-btns{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:12px 22px !important}
 .sp-footer-spacer{flex:1}
-/* 漫画设置弹窗 */
-.comic-settings-modal{width:min(600px,94vw)}
+/* 分镜编辑弹窗 */
+.shot-edit-modal{width:min(640px,94vw);max-height:90vh;display:flex;flex-direction:column;padding:0;overflow:hidden}
+.shot-edit-header{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid #2a3138;background:#15191c}
+.shot-edit-header h3{margin:0;font-size:18px;color:#f0f4f8}
+.shot-edit-header small{font-size:12px;margin-left:8px}
+.shot-edit-body{flex:1;overflow-y:auto;padding:18px 22px}
+.sp-tag-input{width:100%;background:#1e252b;border:1px solid #2a3138;color:#d4e4ee;border-radius:4px;padding:10px 14px;outline:none;font-size:13px;font-family:"Microsoft YaHei",system-ui}
+.sp-tag-input:focus{border-color:#00d4aa}
+/* 危险按钮 */
+.btn-sm.danger{border-color:#c0392b;color:#e74c3c}
+.btn-sm.danger:hover{background:#c0392b;color:#fff}
+.cell-actions{display:flex;flex-direction:column;gap:5px;align-items:flex-start}

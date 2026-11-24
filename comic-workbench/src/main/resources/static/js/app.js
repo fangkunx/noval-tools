@@ -303,6 +303,8 @@ async function renderStory() {
                   <div class="cell-actions">
                     <button class="btn-sm teal" data-action="infer-shot" data-shot-id="${s.id}" title="推理提示词">推理词</button>
                     <button class="btn-sm" data-action="generate-shot" data-shot-id="${s.id}" title="生成图片">生图</button>
+                    <button class="btn-sm" data-action="edit-shot" data-shot-id="${s.id}" title="编辑分镜">编辑</button>
+                    <button class="btn-sm danger" data-action="delete-shot" data-shot-id="${s.id}" title="删除分镜">删除</button>
                   </div>
                 </td>
               </tr>
@@ -890,18 +892,141 @@ document.addEventListener('click', async (e) => {
     case 'add-preset-item': {
       const type = target.dataset.type;
       const list = document.querySelector(`#preset-${type}s`);
-      if (list) {
-        const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
-        const div = document.createElement('div');
-        div.className = 'preset-card';
-        div.dataset.type = type;
-        div.innerHTML = `<input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
-          <div class="preset-card-main">
-            <input class="preset-card-name" placeholder="${label}名称" />
-            <input class="preset-card-desc" placeholder="描述 / 出处" />
-          </div>
-          <button class="preset-card-del" data-action="remove-preset-item" data-type="${type}" data-name="">删除</button>`;
-        list.appendChild(div);
+      if (!list) break;
+      const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
+      const div = document.createElement('div');
+      div.className = 'preset-card preset-card--editing';
+      div.dataset.type = type;
+      div.innerHTML = `<input type="checkbox" class="preset-check" checked onchange="updatePresetSelectedCount()" />
+        <div class="preset-card-main">
+          <input class="preset-edit-name" placeholder="${label}名称…" />
+          <input class="preset-edit-desc" placeholder="描述 / 出处…" />
+        </div>
+        <div class="preset-card-actions">
+          <button class="preset-act-add" data-action="confirm-add-preset">确认</button>
+          <button class="preset-act-cancel">取消</button>
+        </div>`;
+      list.prepend(div);
+      div.querySelector('.preset-edit-name')?.focus();
+      break;
+    }
+
+    case 'confirm-add-preset': {
+      const card = target.closest('.preset-card');
+      if (!card) break;
+      const type = card.dataset.type;
+      const name = card.querySelector('.preset-edit-name')?.value?.trim() || '';
+      const desc = card.querySelector('.preset-edit-desc')?.value?.trim() || '';
+      if (!name) { notify('请输入名称'); return; }
+      // 替换为展示态
+      const list = card.parentElement;
+      const newCard = document.createElement('div');
+      newCard.className = 'preset-card';
+      newCard.dataset.type = type;
+      newCard.innerHTML = `<input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
+        <div class="preset-card-main">
+          <div class="preset-card-title">${escapeHtml(name)}</div>
+          <div class="preset-card-desc">${escapeHtml(desc || '暂无描述')}</div>
+        </div>
+        <div class="preset-card-actions">
+          <button class="preset-act-add">添加</button>
+          <button class="preset-act-edit" data-action="edit-preset-item" data-type="${type}" data-name="${escapeHtml(name)}" data-desc="${escapeHtml(desc)}">编辑</button>
+          <button class="preset-act-del" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(name)}">删除</button>
+        </div>`;
+      card.replaceWith(newCard);
+      updatePresetSelectedCount();
+      break;
+    }
+
+    case 'edit-preset-item': {
+      const type = target.dataset.type;
+      const oldName = target.dataset.name;
+      const oldDesc = target.dataset.desc;
+      const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
+      const card = target.closest('.preset-card');
+      if (!card) break;
+      card.className = 'preset-card preset-card--editing';
+      card.innerHTML = `<input type="checkbox" class="preset-check" checked onchange="updatePresetSelectedCount()" />
+        <div class="preset-card-main">
+          <input class="preset-edit-name" placeholder="${label}名称…" value="${escapeHtml(oldName)}" />
+          <input class="preset-edit-desc" placeholder="描述 / 出处…" value="${escapeHtml(oldDesc)}" />
+        </div>
+        <div class="preset-card-actions">
+          <button class="preset-act-add" data-action="confirm-edit-preset" data-type="${type}">保存</button>
+          <button class="preset-act-cancel" data-action="cancel-edit-preset" data-name="${escapeHtml(oldName)}">取消</button>
+        </div>`;
+      card.querySelector('.preset-edit-name')?.focus();
+      break;
+    }
+
+    case 'confirm-edit-preset': {
+      const type = target.dataset.type;
+      const card = target.closest('.preset-card');
+      if (!card) break;
+      const newName = card.querySelector('.preset-edit-name')?.value?.trim() || '';
+      const newDesc = card.querySelector('.preset-edit-desc')?.value?.trim() || '';
+      if (!newName) { notify('请输入名称'); return; }
+      card.className = 'preset-card';
+      card.innerHTML = `<input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
+        <div class="preset-card-main">
+          <div class="preset-card-title">${escapeHtml(newName)}</div>
+          <div class="preset-card-desc">${escapeHtml(newDesc || '暂无描述')}</div>
+        </div>
+        <div class="preset-card-actions">
+          <button class="preset-act-add">添加</button>
+          <button class="preset-act-edit" data-action="edit-preset-item" data-type="${type}" data-name="${escapeHtml(newName)}" data-desc="${escapeHtml(newDesc)}">编辑</button>
+          <button class="preset-act-del" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(newName)}">删除</button>
+        </div>`;
+      // 同步全部列表
+      refreshAllPresetList();
+      updatePresetSelectedCount();
+      break;
+    }
+
+    case 'cancel-edit-preset': {
+      // 直接重新打开预设面板以恢复原状（简单做法）
+      openPresetPanel();
+      break;
+    }
+
+    case 'edit-shot': {
+      const shotId = target.dataset.shotId;
+      if (shotId) openEditShot(parseInt(shotId));
+      break;
+    }
+
+    case 'delete-shot': {
+      const shotId = target.dataset.shotId;
+      if (shotId) deleteShot(parseInt(shotId));
+      break;
+    }
+
+    case 'save-shot-edit': {
+      const shotId = target.dataset.shotId;
+      const originalText = document.querySelector('#shot-original-text')?.value || '';
+      const sceneDescription = document.querySelector('#shot-scene-desc')?.value || '';
+      const promptText = document.querySelector('#shot-prompt')?.value || '';
+      const tagsRaw = document.querySelector('#shot-tags')?.value || '';
+      const tags = tagsRaw.split(/[,，、]/).map(s => s.trim()).filter(Boolean);
+      try {
+        const shot = await api(`/api/shots/${shotId}`);
+        await api(`/api/shots/${shotId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            novelId: shot.novelId,
+            sequence: shot.sequence,
+            originalText,
+            sceneDescription,
+            promptText,
+            tags,
+            state: shot.state
+          })
+        });
+        notify('分镜已保存');
+        modalRoot.innerHTML = '';
+        renderStory();
+      } catch (e) {
+        notify('保存失败: ' + e.message);
       }
       break;
     }
@@ -1073,6 +1198,58 @@ async function handleSave() {
   }
 }
 
+// ========== 编辑分镜弹窗 ==========
+async function openEditShot(shotId) {
+  try {
+    const shot = await api(`/api/shots/${shotId}`);
+    modalRoot.innerHTML = `
+      <div class="modal-back">
+        <div class="modal shot-edit-modal">
+          <div class="shot-edit-header">
+            <h3>编辑分镜 <small style="color:#8899aa">第 ${shot.sequence} 镜</small></h3>
+            <button class="side-panel-close" data-close>✕</button>
+          </div>
+          <div class="shot-edit-body">
+            <div class="sp-block">
+              <div class="sp-block-title">画面内容</div>
+              <textarea id="shot-original-text" class="sp-plot" placeholder="分镜对应的小说原文…">${escapeHtml(shot.originalText || '')}</textarea>
+            </div>
+            <div class="sp-block">
+              <div class="sp-block-title">场景描述</div>
+              <textarea id="shot-scene-desc" class="sp-plot" placeholder="场景构图、镜头…">${escapeHtml(shot.sceneDescription || '')}</textarea>
+            </div>
+            <div class="sp-block">
+              <div class="sp-block-title">图片描述词</div>
+              <textarea id="shot-prompt" class="sp-plot" placeholder="AI 生图提示词…">${escapeHtml(shot.promptText || '')}</textarea>
+            </div>
+            <div class="sp-block">
+              <div class="sp-block-title">标签（逗号分隔）</div>
+              <input id="shot-tags" class="sp-tag-input" value="${(shot.tags || []).join(', ')}" placeholder="角色, 场景, 道具" />
+            </div>
+          </div>
+          <div class="side-panel-footer">
+            <button class="btn" data-close>取消</button>
+            <button class="btn gold" data-action="save-shot-edit" data-shot-id="${shot.id}">保存</button>
+          </div>
+        </div>
+      </div>`;
+  } catch (e) {
+    notify('加载分镜失败: ' + e.message);
+  }
+}
+
+// ========== 删除分镜 ==========
+async function deleteShot(shotId) {
+  if (!confirm(`确认删除分镜 #${shotId}？\n此操作不可恢复。`)) return;
+  try {
+    await api(`/api/shots/${shotId}`, { method: 'DELETE' });
+    notify('分镜已删除');
+    renderStory();
+  } catch (e) {
+    notify('删除失败: ' + e.message);
+  }
+}
+
 // ========== 预设设置 - 左侧滑入面板 ==========
 async function openPresetPanel() {
   if (!currentNovelId) { notify('请先选择小说'); return; }
@@ -1160,10 +1337,14 @@ function renderPresetItem(item, type) {
   return `<div class="preset-card" data-type="${type}">
     <input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
     <div class="preset-card-main">
-      <input class="preset-card-name" value="${escapeHtml(item.name || '')}" placeholder="${label}名称" />
-      <input class="preset-card-desc" value="${escapeHtml(item.description || '')}" placeholder="描述 / 出处" />
+      <div class="preset-card-title">${escapeHtml(item.name || '未命名')}</div>
+      <div class="preset-card-desc">${escapeHtml(item.description || '暂无描述')}</div>
     </div>
-    <button class="preset-card-del" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(item.name || '')}">删除</button>
+    <div class="preset-card-actions">
+      <button class="preset-act-add">添加</button>
+      <button class="preset-act-edit" data-action="edit-preset-item" data-type="${type}" data-name="${escapeHtml(item.name || '')}" data-desc="${escapeHtml(item.description || '')}">编辑</button>
+      <button class="preset-act-del" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(item.name || '')}">删除</button>
+    </div>
   </div>`;
 }
 

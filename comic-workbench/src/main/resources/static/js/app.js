@@ -839,7 +839,7 @@ document.addEventListener('click', async (e) => {
         if (listEl && result.items) {
           listEl.innerHTML = result.items.length > 0
             ? result.items.map(item => renderPresetItem(item, type)).join('')
-            : `<span class="muted">暂无${typeName}</span>`;
+            : `<div class="sp-empty">暂无${typeName}</div>`;
           refreshAllPresetList();
         }
         notify(`已生成 ${result.items?.length || 0} 个${typeName}`);
@@ -849,17 +849,41 @@ document.addEventListener('click', async (e) => {
       break;
     }
 
+    case 'preset-select-all': {
+      const panel = document.getElementById('preset-panel-body');
+      if (!panel) break;
+      panel.querySelectorAll('.preset-check').forEach(b => { b.checked = true; });
+      updatePresetSelectedCount();
+      break;
+    }
+
+    case 'preset-batch-delete': {
+      const panel = document.getElementById('preset-panel-body');
+      if (!panel) break;
+      const cards = panel.querySelectorAll('.preset-card');
+      const toRemove = [];
+      cards.forEach(c => { if (c.querySelector('.preset-check:checked')) toRemove.push(c); });
+      if (toRemove.length === 0) { notify('请先勾选要删除的预设'); break; }
+      toRemove.forEach(c => c.remove());
+      refreshAllPresetList();
+      updatePresetSelectedCount();
+      notify(`已删除 ${toRemove.length} 个预设`);
+      break;
+    }
+
     case 'remove-preset-item': {
       const type = target.dataset.type;
       const name = target.dataset.name;
       const list = document.querySelector(`#preset-${type}s`);
-      if (list) {
-        const items = list.querySelectorAll('.preset-item');
-        items.forEach(el => {
-          const nameInput = el.querySelector('.preset-item-name');
+      const allList = document.querySelector('#preset-all');
+      [list, allList].forEach(l => {
+        if (!l) return;
+        l.querySelectorAll('.preset-card').forEach(el => {
+          const nameInput = el.querySelector('.preset-card-name');
           if (nameInput && nameInput.value === name) el.remove();
         });
-      }
+      });
+      updatePresetSelectedCount();
       break;
     }
 
@@ -867,12 +891,16 @@ document.addEventListener('click', async (e) => {
       const type = target.dataset.type;
       const list = document.querySelector(`#preset-${type}s`);
       if (list) {
+        const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
         const div = document.createElement('div');
-        div.className = 'preset-item';
+        div.className = 'preset-card';
         div.dataset.type = type;
-        div.innerHTML = `<input class="preset-item-name" placeholder="名称" />
-          <input class="preset-item-desc" placeholder="描述" />
-          <button class="btn-sm" data-action="remove-preset-item" data-type="${type}" data-name="">✕</button>`;
+        div.innerHTML = `<input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
+          <div class="preset-card-main">
+            <input class="preset-card-name" placeholder="${label}名称" />
+            <input class="preset-card-desc" placeholder="描述 / 出处" />
+          </div>
+          <button class="preset-card-del" data-action="remove-preset-item" data-type="${type}" data-name="">删除</button>`;
         list.appendChild(div);
       }
       break;
@@ -1068,40 +1096,55 @@ async function openPresetPanel() {
       <h3>⚙ 预设设置</h3>
       <button class="side-panel-close" data-action="close-preset-panel">✕</button>
     </div>
-    <div class="sp-tabs">
-      <button class="sp-tab active" data-tab="all" data-action="switch-preset-tab">全部</button>
-      <button class="sp-tab" data-tab="character" data-action="switch-preset-tab">角色</button>
-      <button class="sp-tab" data-tab="scene" data-action="switch-preset-tab">场景</button>
-      <button class="sp-tab" data-tab="prop" data-action="switch-preset-tab">道具</button>
+    <div class="sp-toolbar">
+      <span class="sp-selected">已选择 <b id="preset-selected-count">0</b> 个标签</span>
+      <button class="btn-sm" data-action="preset-select-all">全部选择</button>
+      <button class="btn-sm danger" data-action="preset-batch-delete">批量删除</button>
     </div>
     <div class="side-panel-body" id="preset-panel-body">
-      <div class="sp-section" data-section="all">
-        <div class="preset-list" id="preset-all">${allItems || '<span class="muted">暂无预设</span>'}</div>
+      <div class="sp-block">
+        <div class="sp-block-title">剧情梗概</div>
+        <textarea id="preset-plot-summary" class="sp-plot" placeholder="**剧情梗概：** 概括本书主线与人物关系，供后续分镜推理参考…">${escapeHtml(preset.plotSummary || '')}</textarea>
       </div>
-      <div class="sp-section" data-section="character">
-        <div class="sp-section-title">角色</div>
-        <div class="preset-list" id="preset-characters">${chars || '<span class="muted">暂无角色</span>'}</div>
-      </div>
-      <div class="sp-section" data-section="scene">
-        <div class="sp-section-title">场景</div>
-        <div class="preset-list" id="preset-scenes">${scenes || '<span class="muted">暂无场景</span>'}</div>
-      </div>
-      <div class="sp-section" data-section="prop">
-        <div class="sp-section-title">道具</div>
-        <div class="preset-list" id="preset-props">${props || '<span class="muted">暂无道具</span>'}</div>
-      </div>
-      <div class="sp-section" style="margin-top:10px;padding-top:14px;border-top:1px solid #3a3a3a">
-        <label class="sp-label">剧情梗概</label>
-        <textarea id="preset-plot-summary" class="sp-textarea" placeholder="输入剧情梗概...">${escapeHtml(preset.plotSummary || '')}</textarea>
+      <div class="sp-block">
+        <div class="sp-block-head">
+          <div class="sp-block-title">当前预设</div>
+          <div class="sp-tabs">
+            <button class="sp-tab active" data-tab="all" data-action="switch-preset-tab">全部</button>
+            <button class="sp-tab" data-tab="character" data-action="switch-preset-tab">角色</button>
+            <button class="sp-tab" data-tab="scene" data-action="switch-preset-tab">场景</button>
+            <button class="sp-tab" data-tab="prop" data-action="switch-preset-tab">道具</button>
+          </div>
+        </div>
+        <div class="sp-section" data-section="all">
+          <div class="preset-list" id="preset-all">${allItems || '<div class="sp-empty">暂无预设，切换到各分类添加或智能生成</div>'}</div>
+        </div>
+        <div class="sp-section" data-section="character">
+          <div class="sp-section-title">角色</div>
+          <div class="preset-list" id="preset-characters">${chars || '<div class="sp-empty">暂无角色</div>'}</div>
+        </div>
+        <div class="sp-section" data-section="scene">
+          <div class="sp-section-title">场景</div>
+          <div class="preset-list" id="preset-scenes">${scenes || '<div class="sp-empty">暂无场景</div>'}</div>
+        </div>
+        <div class="sp-section" data-section="prop">
+          <div class="sp-section-title">道具</div>
+          <div class="preset-list" id="preset-props">${props || '<div class="sp-empty">暂无道具</div>'}</div>
+        </div>
       </div>
     </div>
-    <div class="side-panel-footer">
+    <div class="side-panel-footer sp-footer-btns">
+      <button class="btn-sm teal" data-action="add-preset-item" data-type="character">＋ 角色</button>
+      <button class="btn-sm teal" data-action="add-preset-item" data-type="scene">＋ 场景</button>
+      <button class="btn-sm teal" data-action="add-preset-item" data-type="prop">＋ 道具</button>
       <button class="btn-sm" data-action="smart-character">智能角色</button>
       <button class="btn-sm" data-action="smart-scene">智能场景</button>
       <button class="btn-sm" data-action="smart-prop">智能道具</button>
+      <span class="sp-footer-spacer"></span>
       <button class="btn" data-action="close-preset-panel">取消</button>
       <button class="btn gold" data-action="save-preset">保存预设</button>
     </div>`;
+  updatePresetSelectedCount();
 }
 
 function closePresetPanel() {
@@ -1113,11 +1156,22 @@ function closePresetPanel() {
 }
 
 function renderPresetItem(item, type) {
-  return `<div class="preset-item" data-type="${type}">
-    <input class="preset-item-name" value="${escapeHtml(item.name || '')}" placeholder="名称" />
-    <input class="preset-item-desc" value="${escapeHtml(item.description || '')}" placeholder="描述" />
-    <button class="btn-sm" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(item.name || '')}">✕</button>
+  const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
+  return `<div class="preset-card" data-type="${type}">
+    <input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
+    <div class="preset-card-main">
+      <input class="preset-card-name" value="${escapeHtml(item.name || '')}" placeholder="${label}名称" />
+      <input class="preset-card-desc" value="${escapeHtml(item.description || '')}" placeholder="描述 / 出处" />
+    </div>
+    <button class="preset-card-del" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(item.name || '')}">删除</button>
   </div>`;
+}
+
+function updatePresetSelectedCount() {
+  const el = document.getElementById('preset-selected-count');
+  if (!el) return;
+  const checked = document.querySelectorAll('#preset-panel-body .preset-check:checked').length;
+  el.textContent = checked;
 }
 
 // ========== 漫画设置弹窗 ==========
@@ -1221,9 +1275,9 @@ function collectPresetItems(type) {
   const list = document.querySelector(`#preset-${type}s`);
   if (!list) return [];
   const items = [];
-  list.querySelectorAll('.preset-item').forEach(el => {
-    const name = el.querySelector('.preset-item-name')?.value || '';
-    const desc = el.querySelector('.preset-item-desc')?.value || '';
+  list.querySelectorAll('.preset-card').forEach(el => {
+    const name = el.querySelector('.preset-card-name')?.value || '';
+    const desc = el.querySelector('.preset-card-desc')?.value || '';
     if (name.trim()) items.push({ name: name.trim(), description: desc.trim(), type: type.toUpperCase(), imageUrl: '' });
   });
   return items;
@@ -1232,14 +1286,14 @@ function collectPresetItems(type) {
 function refreshAllPresetList() {
   const allEl = document.querySelector('#preset-all');
   if (!allEl) return;
-  const chars = document.querySelectorAll('#preset-characters .preset-item');
-  const scenes = document.querySelectorAll('#preset-scenes .preset-item');
-  const props = document.querySelectorAll('#preset-props .preset-item');
+  const chars = document.querySelectorAll('#preset-characters .preset-card');
+  const scenes = document.querySelectorAll('#preset-scenes .preset-card');
+  const props = document.querySelectorAll('#preset-props .preset-card');
   let html = '';
   chars.forEach(el => html += el.outerHTML);
   scenes.forEach(el => html += el.outerHTML);
   props.forEach(el => html += el.outerHTML);
-  allEl.innerHTML = html || '<span class="muted">暂无预设</span>';
+  allEl.innerHTML = html || '<div class="sp-empty">暂无预设</div>';
 }
 
 loadNovelList();

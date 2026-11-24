@@ -14,7 +14,8 @@ public class ShotRequest {
     private String originalText;
     private String sceneDescription;
     private String promptText;
-    private List<String> imageUrls;
+    private String mainImageUrl;
+    private List<String> altImageUrls;
     private List<String> tags;
     private String state;
 
@@ -25,7 +26,8 @@ public class ShotRequest {
                 .originalText(originalText)
                 .sceneDescription(sceneDescription)
                 .promptText(promptText)
-                .imageUrls(imageUrls)
+                .mainImageUrl(mainImageUrl)
+                .altImageUrls(altImageUrls)
                 .tags(tags)
                 .state(state != null ? ShotState.valueOf(state) : ShotState.PENDING)
                 .build();
@@ -41,8 +43,10 @@ public class ShotRequest {
     public void setSceneDescription(String sceneDescription) { this.sceneDescription = sceneDescription; }
     public String getPromptText() { return promptText; }
     public void setPromptText(String promptText) { this.promptText = promptText; }
-    public List<String> getImageUrls() { return imageUrls; }
-    public void setImageUrls(List<String> imageUrls) { this.imageUrls = imageUrls; }
+    public String getMainImageUrl() { return mainImageUrl; }
+    public void setMainImageUrl(String mainImageUrl) { this.mainImageUrl = mainImageUrl; }
+    public List<String> getAltImageUrls() { return altImageUrls; }
+    public void setAltImageUrls(List<String> altImageUrls) { this.altImageUrls = altImageUrls; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = tags; }
     public String getState() { return state; }

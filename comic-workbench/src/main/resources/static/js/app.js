@@ -10,6 +10,9 @@ const scriptList = document.querySelector('#script-list');
 
 let currentNovelId = null;
 let currentView = 'novels';
+let storyPage = 1;
+let storyPageSize = 10;
+let storyTotal = 0;
 
 // ========== API 调用 ==========
 async function api(path, options = {}) {
@@ -229,67 +232,104 @@ async function renderAccounts() {
 // ========== 分镜台 ==========
 async function renderStory() {
   if (!currentNovelId) {
-    view.innerHTML = shell('小说分镜台', '请先选择一个小说');
+    view.innerHTML = shell('小说分镜台', '请先选择一个小说。可在"小说库"中点击卡片进入。');
     return;
   }
 
   let shots = [];
-  try { shots = await api(`/api/shots?novelId=${currentNovelId}`); } catch (e) {}
+  let total = 0;
+  try {
+    const result = await api(`/api/shots?novelId=${currentNovelId}&page=${storyPage}&size=${storyPageSize}`);
+    shots = result.data || [];
+    total = result.total || 0;
+    storyTotal = total;
+  } catch (e) {}
+  let novel = null;
+  try { novel = await api(`/api/novels/${currentNovelId}`); } catch (e) {}
+
+  const totalPages = storyPageSize > 0 ? Math.ceil(total / storyPageSize) : 1;
 
   view.innerHTML = `
     <div>
-      ${shell('小说分镜台', `当前小说 ID: ${currentNovelId} · 将每行文本推理为漫画画面。`,
-        `<button class="btn gold" data-action="batch-infer">批量推理</button>
+      ${shell('小说分镜台', `《${novel ? novel.title : '未命名'}》 · 共 ${total} 个分镜`,
+        `<button class="btn" data-action="batch-infer">批量推理提示词</button>
          <button class="btn teal" data-action="batch-generate">批量生图</button>
          <button class="btn" data-action="comic-settings">漫画设置</button>
-         <button class="btn teal" data-action="export">导出漫画</button>`)}
-      <div class="toolbar">
-        <button class="chip active">序号 跳转</button>
-        <span>画面内容</span>
-        <button class="chip active">排序</button>
-        <button class="chip">连续</button>
-        <span>预设</span>
-        <button class="chip">推理</button>
-        <button class="chip active" data-action="preset">设置</button>
-        <span>图片描述词</span>
-        <button class="chip active">操作</button>
-        <button class="chip">缺失</button>
+         <button class="btn gold" data-action="export">导出漫画</button>`)}
+      <div class="storyboard">
+        <table class="storyboard-table">
+          <thead>
+            <tr>
+              <th class="col-seq">序号</th>
+              <th class="col-content">画面内容</th>
+              <th class="col-preset">预设</th>
+              <th class="col-prompt">图片描述词</th>
+              <th class="col-main">主图</th>
+              <th class="col-alt">备选图</th>
+              <th class="col-op">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${shots.length === 0 ? `<tr><td colspan="7" class="empty-row">暂无分镜，请从"小说库"打开小说并点击"导入剧本"</td></tr>` : ''}
+            ${shots.map(s => `
+              <tr data-shot-id="${s.id}">
+                <td class="col-seq"><span class="seq-num">${s.sequence}</span></td>
+                <td class="col-content"><textarea class="cell-edit" data-shot-id="${s.id}" data-field="originalText" title="失焦自动保存">${escapeHtml(s.originalText || '')}</textarea></td>
+                <td class="col-preset">
+                  <div class="cell-tags">
+                    ${(s.tags || []).map(t => `<span class="tag teal">${escapeHtml(t)}</span>`).join('')}
+                    ${(s.tags || []).length === 0 ? '<span class="muted">待推理</span>' : ''}
+                  </div>
+                </td>
+                <td class="col-prompt"><textarea class="cell-edit" data-shot-id="${s.id}" data-field="promptText" title="失焦自动保存">${escapeHtml(s.promptText || '')}</textarea></td>
+                <td class="col-main">
+                  <div class="main-image-cell">
+                    ${s.mainImageUrl
+                      ? `<img src="${s.mainImageUrl}" class="main-thumb" data-shot-id="${s.id}" data-action="preview-main" />`
+                      : `<div class="empty-main">暂无主图</div>`}
+                  </div>
+                </td>
+                <td class="col-alt">
+                  <div class="alt-images-cell">
+                    ${(s.altImageUrls || []).map(url =>
+                      `<img src="${url}" class="alt-thumb ${s.mainImageUrl === url ? 'selected' : ''}"
+                         data-shot-id="${s.id}" data-image-url="${url}" data-action="select-main-image"
+                         title="点击设为主图" />`
+                    ).join('')}
+                    ${(s.altImageUrls || []).length === 0 ? '<div class="empty-alt">待生成</div>' : ''}
+                  </div>
+                </td>
+                <td class="col-op">
+                  <div class="cell-actions">
+                    <button class="btn-sm teal" data-action="infer-shot" data-shot-id="${s.id}" title="推理提示词">推理词</button>
+                    <button class="btn-sm" data-action="generate-shot" data-shot-id="${s.id}" title="生成图片">生图</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       </div>
-      <div class="split-layout">
-        ${shots.map(s => `
-          <div class="shot" data-shot-id="${s.id}">
-            <div class="shot-num">${s.sequence}</div>
-            <div class="shot-text">${s.originalText || ''}</div>
-            <div class="tags">
-              ${(s.tags || []).map(t => `<span class="tag teal">${t}</span>`).join('')}
-            </div>
-            <button class="btn teal" style="margin-top:18px" data-action="rewrite">改写</button>
-          </div>
-          <div class="shot">
-            <div class="shot-desc">${s.sceneDescription || '等待推理...'}</div>
-            <div class="tags">
-              <span class="tag teal">画面构图</span>
-              <span class="tag">镜头</span>
-            </div>
-          </div>
-          <div class="shot">
-            <div class="shot-images">
-              ${(s.imageUrls || []).map(url => `<div class="thumb"><img src="${url}" style="width:100%;height:100%;object-fit:cover"/></div>`).join('')}
-              <div class="empty-thumb">拖拽导入<br/><strong>＋</strong></div>
-            </div>
-            <div class="bottom-bar">
-              <button class="btn" data-action="image">智能推导</button>
-              <button class="btn teal" data-action="image">推导图片</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-      <div class="bottom-bar">
-        <span style="margin-right:auto;color:#aaa">分镜数 <b style="color:var(--teal)">${shots.length}</b></span>
-        <button class="btn">＋ 导入剧本(txt)</button>
-        <button class="btn">＋ 添加新行</button>
-        <button class="btn">上一页</button>
-        <button class="btn teal">下一页</button>
+      <div class="bottom-bar pagination-bar">
+        <div class="pagination-info">
+          <span>共 <b style="color:var(--teal)">${total}</b> 条</span>
+          <span>每页</span>
+          <select class="page-size-select" data-action="change-page-size">
+            <option value="10" ${storyPageSize === 10 ? 'selected' : ''}>10</option>
+            <option value="20" ${storyPageSize === 20 ? 'selected' : ''}>20</option>
+            <option value="50" ${storyPageSize === 50 ? 'selected' : ''}>50</option>
+            <option value="100" ${storyPageSize === 100 ? 'selected' : ''}>100</option>
+            <option value="0" ${storyPageSize === 0 ? 'selected' : ''}>全部</option>
+          </select>
+          <span>条</span>
+        </div>
+        <div class="pagination-controls">
+          <button class="btn" data-action="first-page" ${storyPage <= 1 ? 'disabled' : ''}>首页</button>
+          <button class="btn" data-action="prev-page" ${storyPage <= 1 ? 'disabled' : ''}>上一页</button>
+          <span class="page-indicator">${storyPageSize > 0 ? `第 ${storyPage} / ${totalPages} 页` : '全部'}</span>
+          <button class="btn" data-action="next-page" ${storyPageSize <= 0 || storyPage >= totalPages ? 'disabled' : ''}>下一页</button>
+          <button class="btn" data-action="last-page" ${storyPageSize <= 0 || storyPage >= totalPages ? 'disabled' : ''}>末页</button>
+        </div>
       </div>
     </div>`;
 }
@@ -315,7 +355,105 @@ function notify(msg) {
   setTimeout(() => toast.classList.remove('show'), 1800);
 }
 
+/**
+ * 打开小说详情编辑弹窗（参照设计稿 4.3 小说详情）
+ * - 编辑标题 / 内容
+ * - 清理序号（去除行首的 "1." / "第1章" / "【1】" 等）
+ * - 导入剧本（按行拆分为分镜，一行一个分镜）
+ */
+async function openNovelDetail(novelId) {
+  let novel;
+  try {
+    novel = await api(`/api/novels/${novelId}`);
+  } catch (e) {
+    notify('加载小说失败: ' + e.message);
+    return;
+  }
+  if (!novel || !novel.id) {
+    notify('小说不存在');
+    return;
+  }
+
+  modalRoot.innerHTML = `
+    <div class="modal-back novel-detail-back">
+      <div class="modal novel-detail-modal">
+        <div class="novel-detail-head">
+          <h2>${novel.title || '未命名'}</h2>
+          <div class="novel-detail-tags">
+            ${novel.vip ? '<span class="tag gold">VIP</span>' : ''}
+            ${novel.source ? `<span class="tag teal">${novel.source}</span>` : ''}
+            <span class="tag">ID: ${novel.id}</span>
+          </div>
+        </div>
+
+        <div class="novel-detail-toolbar">
+          <label class="novel-detail-label">书名</label>
+          <input id="novel-detail-title" class="novel-detail-title-input"
+                 value="${escapeHtml(novel.title || '')}" placeholder="请输入书名" />
+          <div class="novel-detail-actions">
+            <button class="btn" data-action="clean-numbers" data-novel-id="${novel.id}">清理序号</button>
+            <button class="btn teal" data-action="import-shots" data-novel-id="${novel.id}">导入剧本</button>
+          </div>
+        </div>
+
+        <div class="novel-detail-body">
+          <label class="novel-detail-label">小说内容 <small style="color:#888">（每行将作为一个分镜段落；可点击右上角"清理序号"去除行首编号；"导入剧本"后自动进入分镜台）</small></label>
+          <textarea id="novel-detail-content" class="novel-detail-content"
+                    placeholder="在此粘贴或编辑小说内容，一行一段...">${escapeHtml(novel.content || '')}</textarea>
+        </div>
+
+        <div class="modal-foot">
+          <span id="novel-detail-hint" style="margin-right:auto;color:#888;font-size:12px"></span>
+          <button class="btn" data-close>取消</button>
+          <button class="btn gold" data-action="save-novel-detail" data-novel-id="${novel.id}">保存</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 // ========== 事件处理 ==========
+// 处理 select 的 change 事件（分页大小选择）
+document.addEventListener('change', async (e) => {
+  const target = e.target;
+  if (target.matches('.page-size-select')) {
+    storyPageSize = parseInt(target.value);
+    storyPage = 1;
+    renderStory();
+  }
+});
+
+// 分镜表格内编辑：失焦自动保存
+let saveTimer = null;
+document.addEventListener('focusout', async (e) => {
+  const target = e.target;
+  if (target.matches('.cell-edit')) {
+    const shotId = target.dataset.shotId;
+    const field = target.dataset.field;
+    const value = target.value;
+    if (!shotId || !field) return;
+    // 防抖：300ms 后保存
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        await api(`/api/shots/${shotId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ [field]: value })
+        });
+        target.style.borderColor = 'var(--teal)';
+        setTimeout(() => { target.style.borderColor = ''; }, 800);
+      } catch (err) {
+        target.style.borderColor = '#e74c3c';
+        setTimeout(() => { target.style.borderColor = ''; }, 1500);
+        notify('保存失败: ' + err.message);
+      }
+    }, 300);
+  }
+});
+
 document.addEventListener('click', async (e) => {
   const target = e.target.closest('[data-view], [data-action], [data-novel-id], [data-filter-type], [data-close], [data-save]');
   if (!target) return;
@@ -333,14 +471,16 @@ document.addEventListener('click', async (e) => {
 
   // 动作处理（优先于 novelId，因为小说卡片同时有 data-action 和 data-novel-id）
   if (action === 'open-novel') {
-    currentView = 'story';
-    show('story');
+    // 单击小说卡片 → 打开小说详情编辑（参照设计稿 4.3）
+    console.log('点击小说卡片，打开详情:', novelId);
+    openNovelDetail(parseInt(novelId));
     return;
   }
 
   // 小说选择（侧边栏剧本）
-  if (novelId) {
+  if (novelId && !action) {
     currentNovelId = parseInt(novelId);
+    storyPage = 1; // 重置分页
     document.querySelectorAll('.script').forEach(s => s.classList.remove('active'));
     target.classList.add('active');
     if (currentView === 'story') renderStory();
@@ -355,6 +495,60 @@ document.addEventListener('click', async (e) => {
   }
 
   switch (action) {
+    case 'save-novel-detail': {
+      const nId = target.dataset.novelId;
+      const newTitle = document.querySelector('#novel-detail-title')?.value || '';
+      const newContent = document.querySelector('#novel-detail-content')?.value || '';
+      try {
+        await api(`/api/novels/${nId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ title: newTitle, content: newContent })
+        });
+        notify('小说已保存');
+        modalRoot.innerHTML = '';
+        loadNovelList();
+        renderNovels();
+      } catch (e) {
+        notify('保存失败: ' + e.message);
+      }
+      break;
+    }
+
+    case 'clean-numbers': {
+      const nId = target.dataset.novelId;
+      try {
+        const updated = await api(`/api/novels/${nId}/clean-numbers`, { method: 'POST' });
+        // 更新弹窗内容
+        const ta = document.querySelector('#novel-detail-content');
+        const titleInput = document.querySelector('#novel-detail-title');
+        if (ta) ta.value = updated.content || '';
+        if (titleInput) titleInput.value = updated.title || '';
+        const hint = document.querySelector('#novel-detail-hint');
+        if (hint) hint.textContent = '✓ 已清理行首序号';
+        setTimeout(() => { if (hint) hint.textContent = ''; }, 2500);
+        notify('序号已清理');
+      } catch (e) {
+        notify('清理失败: ' + e.message);
+      }
+      break;
+    }
+
+    case 'import-shots': {
+      const nId = target.dataset.novelId;
+      try {
+        const res = await api(`/api/novels/${nId}/import-shots`, { method: 'POST' });
+        notify(`已导入 ${res.importedCount} 个分镜`);
+        currentNovelId = parseInt(nId);
+        storyPage = 1; // 重置分页
+        modalRoot.innerHTML = '';
+        currentView = 'story';
+        show('story');
+      } catch (e) {
+        notify('导入失败: ' + e.message);
+      }
+      break;
+    }
+
     case 'new-script':
       openModal('新建剧本', `
         <div class="form-grid">
@@ -455,6 +649,74 @@ document.addEventListener('click', async (e) => {
         notify('操作失败');
       }
       break;
+
+    case 'select-main-image': {
+      const shotId = target.dataset.shotId;
+      const imageUrl = target.dataset.imageUrl;
+      if (!shotId || !imageUrl) break;
+      try {
+        await api(`/api/shots/${shotId}/select-main-image?imageUrl=${encodeURIComponent(imageUrl)}`, { method: 'POST' });
+        notify('已设为主图');
+        renderStory();
+      } catch (e) {
+        notify('设置失败: ' + e.message);
+      }
+      break;
+    }
+
+    case 'infer-shot': {
+      const shotId = target.dataset.shotId;
+      notify('推理提示词功能待实现');
+      break;
+    }
+
+    case 'generate-shot': {
+      const shotId = target.dataset.shotId;
+      notify('生成图片功能待实现');
+      break;
+    }
+
+    case 'change-page-size': {
+      const select = target.closest('.page-size-select');
+      if (select) {
+        storyPageSize = parseInt(select.value);
+        storyPage = 1; // 重置到第一页
+        renderStory();
+      }
+      break;
+    }
+
+    case 'first-page':
+      if (storyPage > 1) {
+        storyPage = 1;
+        renderStory();
+      }
+      break;
+
+    case 'prev-page':
+      if (storyPage > 1) {
+        storyPage--;
+        renderStory();
+      }
+      break;
+
+    case 'next-page': {
+      const totalPages = storyPageSize > 0 ? Math.ceil(storyTotal / storyPageSize) : 1;
+      if (storyPage < totalPages) {
+        storyPage++;
+        renderStory();
+      }
+      break;
+    }
+
+    case 'last-page': {
+      const totalPages = storyPageSize > 0 ? Math.ceil(storyTotal / storyPageSize) : 1;
+      if (storyPage < totalPages) {
+        storyPage = totalPages;
+        renderStory();
+      }
+      break;
+    }
 
     case 'batch-infer':
       if (currentNovelId) {

@@ -1,10 +1,13 @@
 package com.noval.workbench.infrastructure.persistence;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -14,6 +17,7 @@ import java.sql.Statement;
 @Component
 public class DatabaseInitializer {
 
+    private static final Logger log = LoggerFactory.getLogger(DatabaseInitializer.class);
     private final DataSource dataSource;
 
     public DatabaseInitializer(DataSource dataSource) {
@@ -67,7 +71,9 @@ public class DatabaseInitializer {
                     "prompt_text TEXT, " +
                     "image_urls TEXT, " +
                     "tags TEXT, " +
-                    "state TEXT DEFAULT 'PENDING')");
+                    "state TEXT DEFAULT 'PENDING', " +
+                    "main_image_url TEXT, " +
+                    "alt_image_urls TEXT)");
 
             stmt.execute("CREATE TABLE IF NOT EXISTS asset (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
@@ -77,6 +83,30 @@ public class DatabaseInitializer {
                     "style TEXT, " +
                     "description TEXT, " +
                     "image_url TEXT)");
+
+            // 兼容旧表：添加新列（如果不存在）
+            addColumnIfNotExists(conn, "shot", "main_image_url", "TEXT");
+            addColumnIfNotExists(conn, "shot", "alt_image_urls", "TEXT");
+        }
+    }
+
+    private void addColumnIfNotExists(Connection conn, String table, String column, String type) {
+        try (Statement stmt = conn.createStatement()) {
+            ResultSet rs = stmt.executeQuery("PRAGMA table_info(" + table + ")");
+            boolean exists = false;
+            while (rs.next()) {
+                if (column.equals(rs.getString("name"))) {
+                    exists = true;
+                    break;
+                }
+            }
+            rs.close();
+            if (!exists) {
+                stmt.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
+                log.info("已添加列 {}.{}", table, column);
+            }
+        } catch (SQLException e) {
+            log.warn("添加列 {}.{} 失败: {}", table, column, e.getMessage());
         }
     }
 }

@@ -9,6 +9,8 @@ import java.util.Optional;
  */
 public interface ShotRepository {
     List<Shot> findByNovelId(Long novelId);
+    List<Shot> findByNovelIdPaged(Long novelId, int offset, int limit);
+    int countByNovelId(Long novelId);
     Optional<Shot> findById(Long id);
     Shot save(Shot shot);
     void deleteById(Long id);

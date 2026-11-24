@@ -13,7 +13,8 @@ public class Shot {
     private final String originalText;
     private final String sceneDescription;
     private final String promptText;
-    private final List<String> imageUrls;
+    private final String mainImageUrl;
+    private final List<String> altImageUrls;
     private final List<String> tags;
     private final ShotState state;
 
@@ -24,9 +25,10 @@ public class Shot {
         this.originalText = builder.originalText;
         this.sceneDescription = builder.sceneDescription;
         this.promptText = builder.promptText;
-        this.imageUrls = builder.imageUrls == null
+        this.mainImageUrl = builder.mainImageUrl;
+        this.altImageUrls = builder.altImageUrls == null
                 ? Collections.emptyList()
-                : Collections.unmodifiableList(builder.imageUrls);
+                : Collections.unmodifiableList(builder.altImageUrls);
         this.tags = builder.tags == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(builder.tags);
@@ -39,7 +41,8 @@ public class Shot {
     public String getOriginalText() { return originalText; }
     public String getSceneDescription() { return sceneDescription; }
     public String getPromptText() { return promptText; }
-    public List<String> getImageUrls() { return imageUrls; }
+    public String getMainImageUrl() { return mainImageUrl; }
+    public List<String> getAltImageUrls() { return altImageUrls; }
     public List<String> getTags() { return tags; }
     public ShotState getState() { return state; }
 
@@ -52,7 +55,8 @@ public class Shot {
         private String originalText;
         private String sceneDescription;
         private String promptText;
-        private List<String> imageUrls;
+        private String mainImageUrl;
+        private List<String> altImageUrls;
         private List<String> tags;
         private ShotState state = ShotState.PENDING;
 
@@ -62,7 +66,8 @@ public class Shot {
         public Builder originalText(String originalText) { this.originalText = originalText; return this; }
         public Builder sceneDescription(String sceneDescription) { this.sceneDescription = sceneDescription; return this; }
         public Builder promptText(String promptText) { this.promptText = promptText; return this; }
-        public Builder imageUrls(List<String> imageUrls) { this.imageUrls = imageUrls; return this; }
+        public Builder mainImageUrl(String mainImageUrl) { this.mainImageUrl = mainImageUrl; return this; }
+        public Builder altImageUrls(List<String> altImageUrls) { this.altImageUrls = altImageUrls; return this; }
         public Builder tags(List<String> tags) { this.tags = tags; return this; }
         public Builder state(ShotState state) { this.state = state; return this; }
         public Shot build() { return new Shot(this); }

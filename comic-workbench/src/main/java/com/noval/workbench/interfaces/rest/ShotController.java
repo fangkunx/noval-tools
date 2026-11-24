@@ -22,16 +22,46 @@ public class ShotController {
     }
 
     @GetMapping
-    public List<ShotResponse> listByNovel(@RequestParam Long novelId) {
-        return shotService.listByNovelId(novelId).stream()
+    public ResponseEntity<?> listByNovel(
+            @RequestParam Long novelId,
+            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "0") int size) {
+        if (size <= 0) {
+            // size=0 表示查询全部（兼容旧逻辑）
+            List<ShotResponse> all = shotService.listByNovelId(novelId).stream()
+                    .map(ShotResponse::from)
+                    .collect(Collectors.toList());
+            PageResult result = new PageResult();
+            result.data = all;
+            result.total = all.size();
+            result.page = 1;
+            result.size = all.size();
+            return ResponseEntity.ok((Object) result);
+        }
+        List<ShotResponse> paged = shotService.listByNovelIdPaged(novelId, page, size).stream()
                 .map(ShotResponse::from)
                 .collect(Collectors.toList());
+        int total = shotService.countByNovelId(novelId);
+        PageResult result = new PageResult();
+        result.data = paged;
+        result.total = total;
+        result.page = page;
+        result.size = size;
+        return ResponseEntity.ok((Object) result);
+    }
+
+    /** 分页结果 */
+    public static class PageResult {
+        public List<ShotResponse> data;
+        public int total;
+        public int page;
+        public int size;
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id) {
         return shotService.getById(id)
-                .map(s -> ResponseEntity.ok(ShotResponse.from(s)))
+                .map(s -> ResponseEntity.ok((Object) ShotResponse.from(s)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -44,10 +74,10 @@ public class ShotController {
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable Long id, @RequestBody ShotRequest request) {
         if (!shotService.getById(id).isPresent()) {
-            return ResponseEntity.status(404).body(new ErrorResponse("Not Found", "分镜不存在"));
+            return ResponseEntity.status(404).body((Object) new ErrorResponse("Not Found", "分镜不存在"));
         }
         Shot updated = shotService.update(id, request.toDomain());
-        return ResponseEntity.ok(ShotResponse.from(updated));
+        return ResponseEntity.ok((Object) ShotResponse.from(updated));
     }
 
     @DeleteMapping("/{id}")
@@ -66,5 +96,19 @@ public class ShotController {
     public ResponseEntity<Void> batchGenerate(@RequestParam Long novelId) {
         shotService.batchGenerate(novelId);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 选择主图（从备选图中选择）
+     * POST /api/shots/{id}/select-main-image?imageUrl=xxx
+     */
+    @PostMapping("/{id}/select-main-image")
+    public ResponseEntity<?> selectMainImage(@PathVariable Long id, @RequestParam String imageUrl) {
+        try {
+            Shot updated = shotService.selectMainImage(id, imageUrl);
+            return ResponseEntity.ok((Object) ShotResponse.from(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body((Object) new ErrorResponse("Bad Request", e.getMessage()));
+        }
     }
 }

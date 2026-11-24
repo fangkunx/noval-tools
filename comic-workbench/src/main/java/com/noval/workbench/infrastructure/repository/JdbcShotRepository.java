@@ -32,6 +32,21 @@ public class JdbcShotRepository implements ShotRepository {
     }
 
     @Override
+    public List<Shot> findByNovelIdPaged(Long novelId, int offset, int limit) {
+        return jdbcTemplate.query(
+                "SELECT * FROM shot WHERE novel_id = ? ORDER BY sequence LIMIT ? OFFSET ?",
+                new ShotRowMapper(), novelId, limit, offset);
+    }
+
+    @Override
+    public int countByNovelId(Long novelId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM shot WHERE novel_id = ?",
+                Integer.class, novelId);
+        return count != null ? count : 0;
+    }
+
+    @Override
     public Optional<Shot> findById(Long id) {
         List<Shot> results = jdbcTemplate.query(
                 "SELECT * FROM shot WHERE id = ?", new ShotRowMapper(), id);
@@ -51,23 +66,26 @@ public class JdbcShotRepository implements ShotRepository {
 
     private Long insert(Shot shot) {
         jdbcTemplate.update(
-                "INSERT INTO shot (novel_id, sequence, original_text, scene_description, prompt_text, image_urls, tags, state) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO shot (novel_id, sequence, original_text, scene_description, prompt_text, tags, state, main_image_url, alt_image_urls) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 shot.getNovelId(), shot.getSequence(), shot.getOriginalText(),
                 shot.getSceneDescription(), shot.getPromptText(),
-                serializeList(shot.getImageUrls()), serializeList(shot.getTags()),
-                shot.getState().name()
+                serializeList(shot.getTags()),
+                shot.getState().name(),
+                shot.getMainImageUrl(), serializeList(shot.getAltImageUrls())
         );
         return jdbcTemplate.queryForObject("SELECT last_insert_rowid()", Long.class);
     }
 
     private void update(Shot shot) {
         jdbcTemplate.update(
-                "UPDATE shot SET novel_id=?, sequence=?, original_text=?, scene_description=?, prompt_text=?, image_urls=?, tags=?, state=? WHERE id=?",
+                "UPDATE shot SET novel_id=?, sequence=?, original_text=?, scene_description=?, prompt_text=?, tags=?, state=?, main_image_url=?, alt_image_urls=? WHERE id=?",
                 shot.getNovelId(), shot.getSequence(), shot.getOriginalText(),
                 shot.getSceneDescription(), shot.getPromptText(),
-                serializeList(shot.getImageUrls()), serializeList(shot.getTags()),
-                shot.getState().name(), shot.getId()
+                serializeList(shot.getTags()),
+                shot.getState().name(),
+                shot.getMainImageUrl(), serializeList(shot.getAltImageUrls()),
+                shot.getId()
         );
     }
 
@@ -104,9 +122,10 @@ public class JdbcShotRepository implements ShotRepository {
                     .originalText(rs.getString("original_text"))
                     .sceneDescription(rs.getString("scene_description"))
                     .promptText(rs.getString("prompt_text"))
-                    .imageUrls(deserializeList(rs.getString("image_urls")))
                     .tags(deserializeList(rs.getString("tags")))
                     .state(ShotState.valueOf(rs.getString("state")))
+                    .mainImageUrl(rs.getString("main_image_url"))
+                    .altImageUrls(deserializeList(rs.getString("alt_image_urls")))
                     .build();
         }
     }

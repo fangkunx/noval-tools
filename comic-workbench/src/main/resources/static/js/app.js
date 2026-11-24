@@ -252,8 +252,7 @@ async function renderStory() {
   view.innerHTML = `
     <div>
       ${shell('小说分镜台', `《${novel ? novel.title : '未命名'}》 · 共 ${total} 个分镜`,
-        `<button class="btn" data-action="preset-settings">预设设置</button>
-         <button class="btn" data-action="batch-infer">批量推理</button>
+        `<button class="btn" data-action="batch-infer">批量推理</button>
          <button class="btn teal" data-action="batch-generate">批量生图</button>
          <button class="btn" data-action="comic-settings">漫画设置</button>
          <button class="btn gold" data-action="export">导出漫画</button>`)}
@@ -263,7 +262,7 @@ async function renderStory() {
             <tr>
               <th class="col-seq">序号</th>
               <th class="col-content">画面内容</th>
-              <th class="col-preset">预设</th>
+              <th class="col-preset">预设 <button class="btn-sm" data-action="open-preset-panel" title="设置预设">⚙</button></th>
               <th class="col-prompt">图片描述词</th>
               <th class="col-main">主图</th>
               <th class="col-alt">备选图</th>
@@ -719,8 +718,16 @@ document.addEventListener('click', async (e) => {
       break;
     }
 
+    case 'open-preset-panel':
+      openPresetPanel();
+      break;
+
+    case 'close-preset-panel':
+      closePresetPanel();
+      break;
+
     case 'preset-settings':
-      openPresetSettings();
+      openPresetPanel();
       break;
 
     case 'comic-settings':
@@ -764,7 +771,8 @@ document.addEventListener('click', async (e) => {
           body: JSON.stringify({ novelId: currentNovelId, plotSummary, characters, scenes, props })
         });
         notify('预设已保存');
-        modalRoot.innerHTML = '';
+        closePresetPanel();
+        renderStory();
       } catch (e) {
         notify('保存失败: ' + e.message);
       }
@@ -994,8 +1002,8 @@ async function handleSave() {
   }
 }
 
-// ========== 预设设置弹窗 ==========
-async function openPresetSettings() {
+// ========== 预设设置 - 左侧滑入面板 ==========
+async function openPresetPanel() {
   if (!currentNovelId) { notify('请先选择小说'); return; }
   let preset = {};
   try { preset = await api(`/api/presets?novelId=${currentNovelId}`); } catch (e) {}
@@ -1004,32 +1012,61 @@ async function openPresetSettings() {
   const scenes = (preset.scenes || []).map(c => renderPresetItem(c, 'scene')).join('');
   const props = (preset.props || []).map(c => renderPresetItem(c, 'prop')).join('');
 
-  modalRoot.innerHTML = `
-    <div class="modal-back">
-      <div class="modal preset-modal">
-        <h2>预设设置</h2>
-        <div class="preset-section">
-          <label>剧情梗概</label>
-          <textarea id="preset-plot-summary" class="preset-textarea" placeholder="输入剧情梗概...">${escapeHtml(preset.plotSummary || '')}</textarea>
-        </div>
-        <div class="preset-section">
-          <label>角色预设 <button class="btn-sm teal" data-action="smart-character">智能生成</button></label>
-          <div class="preset-list" id="preset-characters">${chars || '<span class="muted">暂无角色</span>'}</div>
-        </div>
-        <div class="preset-section">
-          <label>场景预设 <button class="btn-sm teal" data-action="smart-scene">智能生成</button></label>
-          <div class="preset-list" id="preset-scenes">${scenes || '<span class="muted">暂无场景</span>'}</div>
-        </div>
-        <div class="preset-section">
-          <label>道具预设 <button class="btn-sm teal" data-action="smart-prop">智能生成</button></label>
-          <div class="preset-list" id="preset-props">${props || '<span class="muted">暂无道具</span>'}</div>
-        </div>
-        <div class="modal-foot">
-          <button class="btn" data-close>取消</button>
-          <button class="btn gold" data-action="save-preset">保存预设</button>
-        </div>
+// 创建左侧滑入面板
+  let panel = document.getElementById('preset-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'preset-panel';
+    document.body.appendChild(panel);
+  }
+  panel.className = 'side-panel side-panel--left side-panel--open';
+  panel.innerHTML = `
+    <div class="side-panel-header">
+      <h3>⚙ 预设设置</h3>
+      <button class="side-panel-close" data-action="close-preset-panel">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div class="sp-section">
+        <label class="sp-label">剧情梗概</label>
+        <textarea id="preset-plot-summary" class="sp-textarea" placeholder="输入剧情梗概...">${escapeHtml(preset.plotSummary || '')}</textarea>
       </div>
+      <div class="sp-section">
+        <div class="sp-label-row">
+          <label class="sp-label">角色</label>
+          <button class="btn-sm teal" data-action="add-preset-item" data-type="character">＋ 添加</button>
+          <button class="btn-sm" data-action="smart-character">智能生成</button>
+        </div>
+        <div class="preset-list" id="preset-characters">${chars || '<span class="muted">暂无角色，点击添加或智能生成</span>'}</div>
+      </div>
+      <div class="sp-section">
+        <div class="sp-label-row">
+          <label class="sp-label">场景</label>
+          <button class="btn-sm teal" data-action="add-preset-item" data-type="scene">＋ 添加</button>
+          <button class="btn-sm" data-action="smart-scene">智能生成</button>
+        </div>
+        <div class="preset-list" id="preset-scenes">${scenes || '<span class="muted">暂无场景，点击添加或智能生成</span>'}</div>
+      </div>
+      <div class="sp-section">
+        <div class="sp-label-row">
+          <label class="sp-label">道具</label>
+          <button class="btn-sm teal" data-action="add-preset-item" data-type="prop">＋ 添加</button>
+          <button class="btn-sm" data-action="smart-prop">智能生成</button>
+        </div>
+        <div class="preset-list" id="preset-props">${props || '<span class="muted">暂无道具，点击添加或智能生成</span>'}</div>
+      </div>
+    </div>
+    <div class="side-panel-footer">
+      <button class="btn" data-action="close-preset-panel">取消</button>
+      <button class="btn gold" data-action="save-preset">保存预设</button>
     </div>`;
+}
+
+function closePresetPanel() {
+  const panel = document.getElementById('preset-panel');
+  if (panel) {
+    panel.className = 'side-panel side-panel--left';
+    setTimeout(() => { panel.innerHTML = ''; }, 300);
+  }
 }
 
 function renderPresetItem(item, type) {

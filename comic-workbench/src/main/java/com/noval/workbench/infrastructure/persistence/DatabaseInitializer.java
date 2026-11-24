@@ -26,6 +26,9 @@ public class DatabaseInitializer {
 
     @PostConstruct
     public void init() throws SQLException {
+        // 清理残留的 SQLite native DLL 文件，防止启动时文件被锁
+        cleanStaleSqliteDlls();
+
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
 
@@ -125,6 +128,26 @@ public class DatabaseInitializer {
             }
         } catch (SQLException e) {
             log.warn("添加列 {}.{} 失败: {}", table, column, e.getMessage());
+        }
+    }
+
+    /**
+     * 清理 Temp 目录下残留的 sqlite-jdbc DLL 文件，避免启动时文件被锁
+     */
+    private void cleanStaleSqliteDlls() {
+        String tempDir = System.getProperty("java.io.tmpdir");
+        if (tempDir == null) return;
+        java.io.File dir = new java.io.File(tempDir);
+        java.io.File[] files = dir.listFiles((d, name) -> name.startsWith("sqlite-") && name.endsWith(".dll"));
+        if (files == null) return;
+        for (java.io.File f : files) {
+            try {
+                if (f.delete()) {
+                    log.info("已清理残留 SQLite DLL: {}", f.getName());
+                }
+            } catch (Exception e) {
+                // 忽略无法删除的文件
+            }
         }
     }
 }

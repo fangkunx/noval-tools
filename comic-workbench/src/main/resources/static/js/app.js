@@ -812,8 +812,8 @@ document.addEventListener('click', async (e) => {
           textModelId: document.querySelector('#comic-text-model')?.value || null,
           imageModelId: document.querySelector('#comic-image-model')?.value || null,
           artStyleId: document.querySelector('#comic-art-style')?.value || null,
-          prefixPromptId: document.querySelector('#comic-prefix')?.value || null,
-          suffixPromptId: document.querySelector('#comic-suffix')?.value || null,
+          prefixPrompt: document.querySelector('#comic-prefix')?.value || null,
+          suffixPrompt: document.querySelector('#comic-suffix')?.value || null,
           aspectRatio: document.querySelector('#comic-aspect-ratio')?.value || '9:16'
         };
         await api('/api/comic-settings', { method: 'POST', body: JSON.stringify(body) });
@@ -1175,13 +1175,13 @@ async function openComicSettings() {
           <div class="field full"><label>前缀提示词</label>
             <select id="comic-prefix">
               <option value="">-- 无前缀 --</option>
-              ${prompts.filter(p => p.category === '前后缀').map(p => `<option value="${p.id}" ${setting.prefixPromptId == p.id ? 'selected' : ''}>${escapeHtml(p.title || '')}</option>`).join('')}
+              ${prompts.filter(p => p.category === '前后缀').map(p => `<option value="${p.id}" ${setting.prefixPrompt == p.id ? 'selected' : ''}>${escapeHtml(p.title || '')}</option>`).join('')}
             </select>
           </div>
           <div class="field full"><label>后缀提示词</label>
             <select id="comic-suffix">
               <option value="">-- 无后缀 --</option>
-              ${prompts.filter(p => p.category === '前后缀').map(p => `<option value="${p.id}" ${setting.suffixPromptId == p.id ? 'selected' : ''}>${escapeHtml(p.title || '')}</option>`).join('')}
+              ${prompts.filter(p => p.category === '前后缀').map(p => `<option value="${p.id}" ${setting.suffixPrompt == p.id ? 'selected' : ''}>${escapeHtml(p.title || '')}</option>`).join('')}
             </select>
           </div>
         </div>

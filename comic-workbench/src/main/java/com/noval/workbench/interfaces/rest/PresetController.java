@@ -84,62 +84,96 @@ public class PresetController {
         return ResponseEntity.ok(result);
     }
 
+    /** 常见中文姓氏（百家姓前 120，用于人名识别过滤） */
+    private static final Set<String> SURNAMES = new LinkedHashSet<>(Arrays.asList(
+            "赵","钱","孙","李","周","吴","郑","王","冯","陈","褚","卫","蒋","沈","韩","杨",
+            "朱","秦","尤","许","何","吕","施","张","孔","曹","严","华","金","魏","陶","姜",
+            "戚","谢","邹","喻","柏","水","窦","章","云","苏","潘","葛","奚","范","彭","郎",
+            "鲁","韦","昌","马","苗","凤","花","方","俞","任","袁","柳","酆","鲍","史","唐",
+            "费","廉","岑","薛","雷","贺","倪","汤","滕","殷","罗","毕","郝","邬","安","常",
+            "乐","于","时","傅","皮","卞","齐","康","伍","余","元","卜","顾","孟","平","黄",
+            "和","穆","萧","尹","姚","邵","湛","汪","祁","毛","禹","狄","米","贝","明","臧",
+            "计","伏","成","戴","谈","宋","茅","庞","熊","纪","舒","屈","项","祝","董","梁",
+            "杜","阮","蓝","闵","席","季","麻","强","贾","路","娄","危","江","童","颜","郭",
+            "梅","盛","林","刁","钟","徐","邱","骆","高","夏","蔡","田","樊","胡","凌","霍",
+            "虞","万","支","柯","管","卢","莫","房","裘","缪","解","应","宗","丁","宣","邓",
+            "郁","单","杭","洪","包","诸","左","石","崔","吉","龚","程","嵇","邢","滑","裴",
+            "陆","荣","翁","荀","羊","惠","甄","曲","家","封","芮","靳","段","富","巫","乌",
+            "焦","巴","弓","牧","隗","山","谷","车","侯","全","班","仰","秋","仲","伊","宫",
+            "宁","仇","栾","暴","甘","厉","戎","祖","武","符","刘","景","詹","束","龙","叶",
+            "幸","司","韶","黎","蓟","薄","印","宿","白","怀","蒲","从","鄂","索","咸","赖",
+            "卓","蔺","屠","蒙","池","乔","阴","胥","能","苍","闻","莘","党","翟","谭","贡",
+            "劳","姬","申","扶","堵","冉","宰","郦","雍","桑","桂","牛","寿","通","边","燕",
+            "冀","浦","尚","农","温","别","庄","晏","柴","瞿","阎","充","慕","连","茹","习",
+            "宦","艾","鱼","容","向","古","易","慎","戈","廖","庾","终","居","衡","步","满"
+    ));
+
+    /** 常见含姓氏但非人名的词，避免误判 */
+    private static final Set<String> NAME_BLACKLIST = new LinkedHashSet<>(Arrays.asList(
+            "黄金","白云","江山","夏日","秋天","黄昏","高兴","千万","马上","华人","龙头",
+            "雷同","安静","常常","乐意","于是","时间","康复","毛病","许多","何处","金刚",
+            "周日","文中","李子","花开","月明","方便","任意","袁泉","安全","成语"
+    ));
+
     /**
-     * 基于小说内容智能生成预设条目（当前为规则提取，后续可接入 LLM）
+     * 基于小说内容智能生成预设条目（规则提取，可后续替换为 LLM）
      */
     private List<PresetItem> generateSmartPreset(String content, String type) {
         List<PresetItem> items = new ArrayList<>();
         String[] lines = content.split("\\r?\\n");
 
         if ("character".equals(type)) {
-            // 简单规则：提取含"人物"、"角色"、"他"、"她"的行，或人名模式
             Set<String> seen = new LinkedHashSet<>();
+            java.util.regex.Pattern wordPattern = java.util.regex.Pattern.compile("[\\u4e00-\\u9fa5]{2,3}");
             for (String line : lines) {
+                if (items.size() >= 10) break;
                 String trimmed = line.trim();
                 if (trimmed.isEmpty()) continue;
-                // 尝试提取人名（2-4个汉字，后跟动作或对话）
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("([\\u4e00-\\u9fa5]{2,4})(?:[\\s]*[，,。！？：:\\s])").matcher(trimmed);
+                java.util.regex.Matcher m = wordPattern.matcher(trimmed);
                 while (m.find()) {
-                    String name = m.group(1);
-                    if (!seen.contains(name) && name.length() >= 2) {
-                        seen.add(name);
-                        items.add(new PresetItem(name, "", "CHARACTER", null));
-                        if (items.size() >= 10) break;
-                    }
+                    String word = m.group();
+                    String surname = word.substring(0, 1);
+                    if (!SURNAMES.contains(surname)) continue;
+                    if (NAME_BLACKLIST.contains(word)) continue;
+                    if (seen.contains(word)) continue;
+                    seen.add(word);
+                    // 描述取包含该词的原句（截断）
+                    String desc = trimmed.length() > 60 ? trimmed.substring(0, 60) + "…" : trimmed;
+                    items.add(new PresetItem(word, desc, "CHARACTER", null));
+                    if (items.size() >= 10) break;
                 }
-                if (items.size() >= 10) break;
             }
         } else if ("scene".equals(type)) {
-            // 提取含场景关键词的行
-            String[] sceneKeywords = {"室内", "室外", "房间", "大厅", "街道", "花园", "森林", "山", "河", "湖", "海", "城", "村", "殿", "堂", "楼", "阁", "寺", "庙"};
+            String[] sceneKeywords = {"室内","室外","房间","大厅","大厅","街道","花园","森林","山","河","湖","海","城","村","殿","堂","楼","阁","寺","庙","厨房","卧室","客厅","办公室","餐厅","公园","酒店","酒吧","学校","医院"};
             Set<String> seen = new LinkedHashSet<>();
             for (String line : lines) {
+                if (items.size() >= 10) break;
                 String trimmed = line.trim();
                 if (trimmed.isEmpty()) continue;
                 for (String kw : sceneKeywords) {
-                    if (trimmed.contains(kw) && !seen.contains(trimmed)) {
-                        seen.add(trimmed);
-                        items.add(new PresetItem(kw + "场景", trimmed, "SCENE", null));
-                        if (items.size() >= 10) break;
+                    if (trimmed.contains(kw) && !seen.contains(kw)) {
+                        seen.add(kw);
+                        String desc = trimmed.length() > 60 ? trimmed.substring(0, 60) + "…" : trimmed;
+                        items.add(new PresetItem(kw, desc, "SCENE", null));
+                        break;
                     }
                 }
-                if (items.size() >= 10) break;
             }
         } else if ("prop".equals(type)) {
-            // 提取含道具关键词的行
-            String[] propKeywords = {"剑", "刀", "枪", "书", "信", "玉", "珠", "宝", "药", "酒", "茶", "花", "灯", "镜", "琴", "棋", "画"};
+            String[] propKeywords = {"剑","刀","枪","书","信","玉","珠","宝","药","酒","茶","花","灯","镜","琴","棋","画","戒指","项链","手机","钥匙","照片","文件","红包","银行卡","口红","香水","伞"};
             Set<String> seen = new LinkedHashSet<>();
             for (String line : lines) {
+                if (items.size() >= 10) break;
                 String trimmed = line.trim();
                 if (trimmed.isEmpty()) continue;
                 for (String kw : propKeywords) {
                     if (trimmed.contains(kw) && !seen.contains(kw)) {
                         seen.add(kw);
-                        items.add(new PresetItem(kw, trimmed, "PROP", null));
-                        if (items.size() >= 10) break;
+                        String desc = trimmed.length() > 60 ? trimmed.substring(0, 60) + "…" : trimmed;
+                        items.add(new PresetItem(kw, desc, "PROP", null));
+                        break;
                     }
                 }
-                if (items.size() >= 10) break;
             }
         }
         return items;

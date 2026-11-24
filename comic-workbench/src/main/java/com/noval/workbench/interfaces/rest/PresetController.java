@@ -3,6 +3,7 @@ package com.noval.workbench.interfaces.rest;
 import com.noval.workbench.application.PresetService;
 import com.noval.workbench.domain.model.Preset;
 import com.noval.workbench.domain.model.PresetItem;
+import com.noval.workbench.domain.model.PresetType;
 import com.noval.workbench.domain.model.Novel;
 import com.noval.workbench.domain.repository.NovelRepository;
 import org.springframework.http.ResponseEntity;
@@ -68,6 +69,10 @@ public class PresetController {
      */
     @PostMapping("/smart")
     public ResponseEntity<?> smartGenerate(@RequestParam Long novelId, @RequestParam String type) {
+        PresetType presetType = PresetType.fromString(type);
+        if (presetType == null) {
+            return ResponseEntity.badRequest().body(Collections.singletonMap("error", "非法类型: " + type));
+        }
         Optional<Novel> novelOpt = novelRepository.findById(novelId);
         if (!novelOpt.isPresent()) {
             return ResponseEntity.badRequest().body(Collections.singletonMap("error", "小说不存在"));
@@ -78,7 +83,7 @@ public class PresetController {
             return ResponseEntity.ok(Collections.singletonMap("items", Collections.emptyList()));
         }
 
-        List<PresetItem> items = generateSmartPreset(content, type);
+        List<PresetItem> items = generateSmartPreset(content, presetType);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("items", items.stream().map(PresetItem::toJson).collect(Collectors.toList()));
         return ResponseEntity.ok(result);
@@ -118,11 +123,11 @@ public class PresetController {
     /**
      * 基于小说内容智能生成预设条目（规则提取，可后续替换为 LLM）
      */
-    private List<PresetItem> generateSmartPreset(String content, String type) {
+    private List<PresetItem> generateSmartPreset(String content, PresetType type) {
         List<PresetItem> items = new ArrayList<>();
         String[] lines = content.split("\\r?\\n");
 
-        if ("character".equals(type)) {
+        if (type == PresetType.CHARACTER) {
             Set<String> seen = new LinkedHashSet<>();
             java.util.regex.Pattern wordPattern = java.util.regex.Pattern.compile("[\\u4e00-\\u9fa5]{2,3}");
             for (String line : lines) {
@@ -139,12 +144,12 @@ public class PresetController {
                     seen.add(word);
                     // 描述取包含该词的原句（截断）
                     String desc = trimmed.length() > 60 ? trimmed.substring(0, 60) + "…" : trimmed;
-                    items.add(new PresetItem(word, desc, "CHARACTER", null));
+                    items.add(new PresetItem(word, desc, PresetType.CHARACTER, null));
                     if (items.size() >= 10) break;
                 }
             }
-        } else if ("scene".equals(type)) {
-            String[] sceneKeywords = {"室内","室外","房间","大厅","大厅","街道","花园","森林","山","河","湖","海","城","村","殿","堂","楼","阁","寺","庙","厨房","卧室","客厅","办公室","餐厅","公园","酒店","酒吧","学校","医院"};
+        } else if (type == PresetType.SCENE) {
+            String[] sceneKeywords = {"室内","室外","房间","大厅","街道","花园","森林","山","河","湖","海","城","村","殿","堂","楼","阁","寺","庙","厨房","卧室","客厅","办公室","餐厅","公园","酒店","酒吧","学校","医院"};
             Set<String> seen = new LinkedHashSet<>();
             for (String line : lines) {
                 if (items.size() >= 10) break;
@@ -154,12 +159,12 @@ public class PresetController {
                     if (trimmed.contains(kw) && !seen.contains(kw)) {
                         seen.add(kw);
                         String desc = trimmed.length() > 60 ? trimmed.substring(0, 60) + "…" : trimmed;
-                        items.add(new PresetItem(kw, desc, "SCENE", null));
+                        items.add(new PresetItem(kw, desc, PresetType.SCENE, null));
                         break;
                     }
                 }
             }
-        } else if ("prop".equals(type)) {
+        } else if (type == PresetType.PROP) {
             String[] propKeywords = {"剑","刀","枪","书","信","玉","珠","宝","药","酒","茶","花","灯","镜","琴","棋","画","戒指","项链","手机","钥匙","照片","文件","红包","银行卡","口红","香水","伞"};
             Set<String> seen = new LinkedHashSet<>();
             for (String line : lines) {
@@ -170,7 +175,7 @@ public class PresetController {
                     if (trimmed.contains(kw) && !seen.contains(kw)) {
                         seen.add(kw);
                         String desc = trimmed.length() > 60 ? trimmed.substring(0, 60) + "…" : trimmed;
-                        items.add(new PresetItem(kw, desc, "PROP", null));
+                        items.add(new PresetItem(kw, desc, PresetType.PROP, null));
                         break;
                     }
                 }

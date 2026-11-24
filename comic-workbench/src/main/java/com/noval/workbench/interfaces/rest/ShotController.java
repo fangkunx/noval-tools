@@ -87,14 +87,20 @@ public class ShotController {
     }
 
     @PostMapping("/batch-infer")
-    public ResponseEntity<Void> batchInfer(@RequestParam Long novelId) {
-        shotService.batchInfer(novelId);
+    public ResponseEntity<?> batchInfer(
+            @RequestParam Long novelId,
+            @RequestParam(required = false, defaultValue = "all") String scope,
+            @RequestParam(required = false, defaultValue = "1") int page) {
+        shotService.batchInfer(novelId, scope, page);
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/batch-generate")
-    public ResponseEntity<Void> batchGenerate(@RequestParam Long novelId) {
-        shotService.batchGenerate(novelId);
+    public ResponseEntity<?> batchGenerate(
+            @RequestParam Long novelId,
+            @RequestParam(required = false, defaultValue = "all") String scope,
+            @RequestParam(required = false, defaultValue = "1") int page) {
+        shotService.batchGenerate(novelId, scope, page);
         return ResponseEntity.ok().build();
     }
 

@@ -252,7 +252,8 @@ async function renderStory() {
   view.innerHTML = `
     <div>
       ${shell('小说分镜台', `《${novel ? novel.title : '未命名'}》 · 共 ${total} 个分镜`,
-        `<button class="btn" data-action="batch-infer">批量推理提示词</button>
+        `<button class="btn" data-action="preset-settings">预设设置</button>
+         <button class="btn" data-action="batch-infer">批量推理</button>
          <button class="btn teal" data-action="batch-generate">批量生图</button>
          <button class="btn" data-action="comic-settings">漫画设置</button>
          <button class="btn gold" data-action="export">导出漫画</button>`)}
@@ -718,6 +719,118 @@ document.addEventListener('click', async (e) => {
       break;
     }
 
+    case 'preset-settings':
+      openPresetSettings();
+      break;
+
+    case 'comic-settings':
+      openComicSettings();
+      break;
+
+    case 'batch-infer':
+      openBatchScopeModal('infer');
+      break;
+
+    case 'batch-generate':
+      openBatchScopeModal('generate');
+      break;
+
+    case 'batch-scope': {
+      const scope = target.dataset.scope;
+      const type = target.dataset.type;
+      modalRoot.innerHTML = '';
+      try {
+        const params = scope === 'all'
+          ? `novelId=${currentNovelId}&scope=all`
+          : `novelId=${currentNovelId}&scope=page&page=${storyPage}`;
+        const endpoint = type === 'infer' ? '/api/shots/batch-infer' : '/api/shots/batch-generate';
+        await api(`${endpoint}?${params}`, { method: 'POST' });
+        notify(scope === 'all' ? `已提交全部 ${storyTotal} 个分镜` : '已提交当前页');
+        renderStory();
+      } catch (e) {
+        notify('操作失败: ' + e.message);
+      }
+      break;
+    }
+
+    case 'save-preset': {
+      try {
+        const plotSummary = document.querySelector('#preset-plot-summary')?.value || '';
+        const characters = collectPresetItems('character');
+        const scenes = collectPresetItems('scene');
+        const props = collectPresetItems('prop');
+        await api('/api/presets', {
+          method: 'POST',
+          body: JSON.stringify({ novelId: currentNovelId, plotSummary, characters, scenes, props })
+        });
+        notify('预设已保存');
+        modalRoot.innerHTML = '';
+      } catch (e) {
+        notify('保存失败: ' + e.message);
+      }
+      break;
+    }
+
+    case 'save-comic-settings': {
+      try {
+        const body = {
+          novelId: currentNovelId,
+          textModelId: document.querySelector('#comic-text-model')?.value || null,
+          imageModelId: document.querySelector('#comic-image-model')?.value || null,
+          artStyleId: document.querySelector('#comic-art-style')?.value || null,
+          prefixPromptId: document.querySelector('#comic-prefix')?.value || null,
+          suffixPromptId: document.querySelector('#comic-suffix')?.value || null,
+          aspectRatio: document.querySelector('#comic-aspect-ratio')?.value || '9:16'
+        };
+        await api('/api/comic-settings', { method: 'POST', body: JSON.stringify(body) });
+        notify('漫画设置已保存');
+        modalRoot.innerHTML = '';
+      } catch (e) {
+        notify('保存失败: ' + e.message);
+      }
+      break;
+    }
+
+    case 'smart-character':
+    case 'smart-scene':
+    case 'smart-prop': {
+      notify('智能推理功能需要配置 API Key，待实现');
+      break;
+    }
+
+    case 'remove-preset-item': {
+      const type = target.dataset.type;
+      const name = target.dataset.name;
+      const list = document.querySelector(`#preset-${type}s`);
+      if (list) {
+        const items = list.querySelectorAll('.preset-item');
+        items.forEach(el => {
+          const nameInput = el.querySelector('.preset-item-name');
+          if (nameInput && nameInput.value === name) el.remove();
+        });
+      }
+      break;
+    }
+
+    case 'add-preset-item': {
+      const type = target.dataset.type;
+      const list = document.querySelector(`#preset-${type}s`);
+      if (list) {
+        const div = document.createElement('div');
+        div.className = 'preset-item';
+        div.dataset.type = type;
+        div.innerHTML = `<input class="preset-item-name" placeholder="名称" />
+          <input class="preset-item-desc" placeholder="描述" />
+          <button class="btn-sm" data-action="remove-preset-item" data-type="${type}" data-name="">✕</button>`;
+        list.appendChild(div);
+      }
+      break;
+    }
+
+    case 'one-click-character':
+      notify('一键形象功能需要配置账号池，待实现');
+      break;
+
     case 'batch-infer':
       if (currentNovelId) {
         try {
@@ -881,6 +994,160 @@ async function handleSave() {
   }
 }
 
+// ========== 预设设置弹窗 ==========
+async function openPresetSettings() {
+  if (!currentNovelId) { notify('请先选择小说'); return; }
+  let preset = {};
+  try { preset = await api(`/api/presets?novelId=${currentNovelId}`); } catch (e) {}
+
+  const chars = (preset.characters || []).map(c => renderPresetItem(c, 'character')).join('');
+  const scenes = (preset.scenes || []).map(c => renderPresetItem(c, 'scene')).join('');
+  const props = (preset.props || []).map(c => renderPresetItem(c, 'prop')).join('');
+
+  modalRoot.innerHTML = `
+    <div class="modal-back">
+      <div class="modal preset-modal">
+        <h2>预设设置</h2>
+        <div class="preset-section">
+          <label>剧情梗概</label>
+          <textarea id="preset-plot-summary" class="preset-textarea" placeholder="输入剧情梗概...">${escapeHtml(preset.plotSummary || '')}</textarea>
+        </div>
+        <div class="preset-section">
+          <label>角色预设 <button class="btn-sm teal" data-action="smart-character">智能生成</button></label>
+          <div class="preset-list" id="preset-characters">${chars || '<span class="muted">暂无角色</span>'}</div>
+        </div>
+        <div class="preset-section">
+          <label>场景预设 <button class="btn-sm teal" data-action="smart-scene">智能生成</button></label>
+          <div class="preset-list" id="preset-scenes">${scenes || '<span class="muted">暂无场景</span>'}</div>
+        </div>
+        <div class="preset-section">
+          <label>道具预设 <button class="btn-sm teal" data-action="smart-prop">智能生成</button></label>
+          <div class="preset-list" id="preset-props">${props || '<span class="muted">暂无道具</span>'}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" data-close>取消</button>
+          <button class="btn gold" data-action="save-preset">保存预设</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderPresetItem(item, type) {
+  return `<div class="preset-item" data-type="${type}">
+    <input class="preset-item-name" value="${escapeHtml(item.name || '')}" placeholder="名称" />
+    <input class="preset-item-desc" value="${escapeHtml(item.description || '')}" placeholder="描述" />
+    <button class="btn-sm" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(item.name || '')}">✕</button>
+  </div>`;
+}
+
+// ========== 漫画设置弹窗 ==========
+async function openComicSettings() {
+  if (!currentNovelId) { notify('请先选择小说'); return; }
+  let setting = {};
+  try { setting = await api(`/api/comic-settings?novelId=${currentNovelId}`); } catch (e) {}
+
+  let accounts = [];
+  try { accounts = await api('/api/accounts'); } catch (e) {}
+  let styles = [];
+  try { styles = await api('/api/styles'); } catch (e) {}
+  let prompts = [];
+  try { prompts = await api('/api/prompts'); } catch (e) {}
+
+  const textAccounts = accounts.filter(a => (a.capabilities || []).includes('TEXT'));
+  const imageAccounts = accounts.filter(a => (a.capabilities || []).includes('IMAGE'));
+
+  modalRoot.innerHTML = `
+    <div class="modal-back">
+      <div class="modal comic-settings-modal">
+        <h2>漫画设置</h2>
+        <div class="form-grid">
+          <div class="field full"><label>图片推导词</label>
+            <select id="comic-prompt-template">
+              <option value="">-- 选择推导词模板 --</option>
+              ${prompts.map(p => `<option value="${p.id}" ${setting.promptTemplateId == p.id ? 'selected' : ''}>${escapeHtml(p.title || '')}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>文本推理模型</label>
+            <select id="comic-text-model">
+              <option value="">-- 选择文本模型 --</option>
+              ${textAccounts.map(a => `<option value="${a.id}" ${setting.textModelId == a.id ? 'selected' : ''}>${escapeHtml(a.displayName || a.name || '')}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>图片推理模型</label>
+            <select id="comic-image-model">
+              <option value="">-- 选择图片模型 --</option>
+              ${imageAccounts.map(a => `<option value="${a.id}" ${setting.imageModelId == a.id ? 'selected' : ''}>${escapeHtml(a.displayName || a.name || '')}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>默认画风</label>
+            <select id="comic-art-style">
+              <option value="">-- 选择画风 --</option>
+              ${styles.map(s => `<option value="${s.id}" ${setting.artStyleId == s.id ? 'selected' : ''}>${escapeHtml(s.name || '')}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>宽高比</label>
+            <select id="comic-aspect-ratio">
+              <option value="9:16" ${setting.aspectRatio === '9:16' ? 'selected' : ''}>9:16</option>
+              <option value="4:3" ${setting.aspectRatio === '4:3' ? 'selected' : ''}>4:3</option>
+              <option value="1:1" ${setting.aspectRatio === '1:1' ? 'selected' : ''}>1:1</option>
+            </select>
+          </div>
+          <div class="field full"><label>前缀提示词</label>
+            <select id="comic-prefix">
+              <option value="">-- 无前缀 --</option>
+              ${prompts.filter(p => p.category === '前后缀').map(p => `<option value="${p.id}" ${setting.prefixPromptId == p.id ? 'selected' : ''}>${escapeHtml(p.title || '')}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field full"><label>后缀提示词</label>
+            <select id="comic-suffix">
+              <option value="">-- 无后缀 --</option>
+              ${prompts.filter(p => p.category === '前后缀').map(p => `<option value="${p.id}" ${setting.suffixPromptId == p.id ? 'selected' : ''}>${escapeHtml(p.title || '')}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" data-close>取消</button>
+          <button class="btn gold" data-action="save-comic-settings">保存设置</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ========== 批量操作范围选择弹窗 ==========
+function openBatchScopeModal(actionType) {
+  if (!currentNovelId) { notify('请先选择小说'); return; }
+  modalRoot.innerHTML = `
+    <div class="modal-back">
+      <div class="modal" style="width:min(400px,90vw)">
+        <h2>${actionType === 'infer' ? '批量推理提示词' : '批量生图'}</h2>
+        <p style="color:#aaa;margin:10px 0 20px">选择操作范围：</p>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <button class="btn teal" style="width:100%;padding:14px" data-action="batch-scope" data-scope="page" data-type="${actionType}">
+            <strong>当前页</strong><br/><small style="color:#aaa">仅处理当前页 ${storyPageSize > 0 ? storyPageSize : ''} 个分镜</small>
+          </button>
+          <button class="btn gold" style="width:100%;padding:14px" data-action="batch-scope" data-scope="all" data-type="${actionType}">
+            <strong>全部镜头</strong><br/><small style="color:#aaa">处理全部 ${storyTotal} 个分镜</small>
+          </button>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" data-close>取消</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 // ========== 初始化 ==========
+function collectPresetItems(type) {
+  const list = document.querySelector(`#preset-${type}s`);
+  if (!list) return [];
+  const items = [];
+  list.querySelectorAll('.preset-item').forEach(el => {
+    const name = el.querySelector('.preset-item-name')?.value || '';
+    const desc = el.querySelector('.preset-item-desc')?.value || '';
+    if (name.trim()) items.push({ name: name.trim(), description: desc.trim(), type: type.toUpperCase(), imageUrl: '' });
+  });
+  return items;
+}
+
 loadNovelList();
 show('novels');

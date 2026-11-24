@@ -64,3 +64,17 @@
 .pagination-controls .btn{padding:6px 12px;font-size:12px}
 .pagination-controls .btn:disabled{opacity:0.4;cursor:not-allowed}
 .page-indicator{color:#aaa;font-size:13px;padding:0 8px}
+
+/* 预设设置弹窗 */
+.preset-modal{width:min(700px,94vw);max-height:90vh;overflow:auto}
+.preset-section{margin-bottom:16px}
+.preset-section label{display:flex;align-items:center;gap:10px;color:#bbb;font-size:14px;margin-bottom:6px}
+.preset-textarea{width:100%;min-height:80px;background:#181818;border:1px solid #555;color:#fff;border-radius:4px;padding:10px;outline:none;font-size:13px;resize:vertical;font-family:"Microsoft YaHei",system-ui}
+.preset-textarea:focus{border-color:var(--teal)}
+.preset-list{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.preset-item{display:flex;gap:8px;align-items:center;background:#1a1a1a;border:1px solid #3a3a3a;border-radius:4px;padding:8px 10px}
+.preset-item input{flex:1;background:transparent;border:1px solid #555;color:#fff;border-radius:3px;padding:6px 8px;outline:none;font-size:13px}
+.preset-item input:focus{border-color:var(--teal)}
+.preset-item-name{max-width:120px !important}
+.preset-item-desc{flex:1 !important}
+.comic-settings-modal{width:min(600px,94vw)}

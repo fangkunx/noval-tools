@@ -84,6 +84,24 @@ public class DatabaseInitializer {
                     "description TEXT, " +
                     "image_url TEXT)");
 
+            stmt.execute("CREATE TABLE IF NOT EXISTS preset (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "novel_id INTEGER, " +
+                    "plot_summary TEXT, " +
+                    "characters TEXT, " +
+                    "scenes TEXT, " +
+                    "props TEXT)");
+
+            stmt.execute("CREATE TABLE IF NOT EXISTS comic_setting (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "novel_id INTEGER, " +
+                    "text_model_id TEXT, " +
+                    "image_model_id TEXT, " +
+                    "art_style_id TEXT, " +
+                    "prefix_prompt TEXT, " +
+                    "suffix_prompt TEXT, " +
+                    "aspect_ratio TEXT)");
+
             // 兼容旧表：添加新列（如果不存在）
             addColumnIfNotExists(conn, "shot", "main_image_url", "TEXT");
             addColumnIfNotExists(conn, "shot", "alt_image_urls", "TEXT");

@@ -104,8 +104,15 @@ public class ShotService {
                 .build());
     }
 
-    public void batchInfer(Long novelId) {
-        List<Shot> shots = shotRepository.findByNovelId(novelId);
+    public void batchInfer(Long novelId, String scope, int page) {
+        List<Shot> shots;
+        if ("page".equals(scope)) {
+            int pageSize = 10; // 默认页大小
+            int offset = (page - 1) * pageSize;
+            shots = shotRepository.findByNovelIdPaged(novelId, offset, pageSize);
+        } else {
+            shots = shotRepository.findByNovelId(novelId);
+        }
         for (Shot shot : shots) {
             if (shot.getState() == ShotState.PENDING) {
                 Shot updated = Shot.builder()
@@ -125,8 +132,15 @@ public class ShotService {
         }
     }
 
-    public void batchGenerate(Long novelId) {
-        List<Shot> shots = shotRepository.findByNovelId(novelId);
+    public void batchGenerate(Long novelId, String scope, int page) {
+        List<Shot> shots;
+        if ("page".equals(scope)) {
+            int pageSize = 10;
+            int offset = (page - 1) * pageSize;
+            shots = shotRepository.findByNovelIdPaged(novelId, offset, pageSize);
+        } else {
+            shots = shotRepository.findByNovelId(novelId);
+        }
         for (Shot shot : shots) {
             if (shot.getState() == ShotState.INFERRED) {
                 Shot updated = Shot.builder()

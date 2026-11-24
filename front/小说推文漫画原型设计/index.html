@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>雪漫画 · 小说推文漫画工作台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">✦</span><span>雪漫画</span></div>
+      <div class="account"><span class="crown">♛</span><div><strong>贵宾用户</strong><small>VIP · 2077-07-18 到期</small></div></div>
+      <button class="new-script" data-action="new-script">▣ 新建剧本</button>
+      <div class="script-search">⌕ <input placeholder="搜索剧本名字..." /></div>
+      <div class="script-list">
+        <div class="script active">▤ <span>宝龙造世获妹生子</span><i>id:17</i><b></b></div>
+        <div class="script">▤ <span>重生后，我把男友</span><i>id:16</i><b></b></div>
+        <div class="script">▤ <span>渣男重生报恩青梅</span><i>id:15</i><b></b></div>
+        <div class="script">▤ <span>冷战第三个月，我</span><i>id:14</i><b></b></div>
+        <div class="script">▤ <span>表妹怀孕后留我</span><i>id:13</i><b></b></div>
+        <div class="script">▤ <span>被养女替代后死</span><i>id:12</i><b></b></div>
+        <div class="script">▤ <span>纵容女儿弟弟不检</span><i>id:11</i><b></b></div>
+        <div class="script">▤ <span>亲手送我进监狱的</span><i>id:10</i><b></b></div>
+      </div>
+      <nav class="main-nav">
+        <button data-view="novels">▤ <span>小说库</span></button>
+        <button data-view="assets">♟ <span>资产库</span></button>
+        <button data-view="styles">◉ <span>画风库</span></button>
+        <button data-view="prompts">▤ <span>提示词</span></button>
+        <button data-view="accounts">▥ <span>账号池</span></button>
+      </nav>
+      <div class="version">v1.8.19.7</div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="top-icons">☁　◷　▣　⇩</div>
+        <button class="upgrade">自动升级 1.8.19.20</button><span>−</span><span>□</span><span>×</span>
+      </header>
+      <section id="view" class="view"></section>
+    </main>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast" class="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

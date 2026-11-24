@@ -1,0 +1,12 @@
+server:
+  port: 8082
+
+spring:
+  profiles:
+    active: dev
+  thymeleaf:
+    cache: false
+
+logging:
+  level:
+    com.noval.workbench: DEBUG

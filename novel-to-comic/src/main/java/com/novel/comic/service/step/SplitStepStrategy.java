@@ -29,7 +29,7 @@ public class SplitStepStrategy implements StepStrategy {
                 "你是专业的漫画分镜导演。只输出拆分结果，每行一段，按编号输出，不要任何多余内容。",
                 prompt,
                 createStreamCallback(ctx),
-                false, 16000, 0.3
+                false, 1600000, 0.3
         );
 
         List<String> segs = new ArrayList<>();

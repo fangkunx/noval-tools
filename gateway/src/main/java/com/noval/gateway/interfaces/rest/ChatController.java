@@ -1,5 +1,7 @@
 package com.noval.gateway.interfaces.rest;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noval.gateway.application.ChatService;
 import com.noval.gateway.domain.model.ChatCommand;
 import com.noval.gateway.domain.model.ChatResult;
@@ -22,7 +24,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,12 +55,16 @@ import java.util.concurrent.Executors;
 public class ChatController {
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
+    private static final Path PROMPT_LOG_DIR = Paths.get("prompt-logs");
+    private static final DateTimeFormatter FILE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HH_mm_ss");
 
+    private final ObjectMapper mapper;
     private final ChatService chatService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    public ChatController(ChatService chatService) {
+    public ChatController(ChatService chatService, ObjectMapper mapper) {
         this.chatService = chatService;
+        this.mapper = mapper;
     }
 
     @Operation(
@@ -89,11 +105,18 @@ public class ChatController {
     })
     @PostMapping(value = "/chat/completions")
     public Object chat(
+            HttpServletRequest httpServletRequest,
             @Parameter(description = "聊天请求", required = true)
             @RequestBody ChatRequest request,
             @Parameter(hidden = true)
-            @RequestHeader(value = "Accept", required = false) String accept) {
+            @RequestHeader(value = "Accept", required = false) String accept) throws JsonProcessingException {
+
+        // 打印完整的 HTTP 请求报文
+        logFullHttpRequest(httpServletRequest, request);
+
         log.debug("Chat request: model={}, stream={}", request.getModel(), request.isStream());
+
+        saveMessagesToMarkdown(request.getMessages());
 
         // Convert DTO to domain command
         ChatCommand command = convertToCommand(request);
@@ -232,5 +255,131 @@ public class ChatController {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
+    }
+
+    /**
+     * 将请求消息保存为 Markdown 文件
+     * 文件名格式：提示词-yyyyMMdd_HH_mm_ss.md
+     */
+    private void saveMessagesToMarkdown(List<ChatRequest.Message> messages) {
+        try {
+            if (!Files.exists(PROMPT_LOG_DIR)) {
+                Files.createDirectories(PROMPT_LOG_DIR);
+            }
+
+            String timestamp = LocalDateTime.now().format(FILE_TIME_FORMATTER);
+            Path filePath = PROMPT_LOG_DIR.resolve("提示词-" + timestamp + ".md");
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("# 请求消息记录\n\n");
+            sb.append("**时间:** ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("\n\n");
+            sb.append("---\n\n");
+
+            for (ChatRequest.Message msg : messages) {
+                sb.append("## ").append(msg.getRole()).append("\n\n");
+
+                Object content = msg.getContent();
+                if (content instanceof String) {
+                    sb.append(content).append("\n\n");
+                } else if (content instanceof List) {
+                    for (Object partObj : (List<?>) content) {
+                        if (partObj instanceof java.util.Map) {
+                            java.util.Map<?, ?> partMap = (java.util.Map<?, ?>) partObj;
+                            String type = (String) partMap.get("type");
+                            if ("text".equals(type)) {
+                                sb.append(partMap.get("text")).append("\n\n");
+                            } else if ("image_url".equals(type)) {
+                                java.util.Map<?, ?> imageUrl = (java.util.Map<?, ?>) partMap.get("image_url");
+                                if (imageUrl != null) {
+                                    sb.append("![image](").append(imageUrl.get("url")).append(")\n\n");
+                                }
+                            }
+                        }
+                    }
+                }
+                sb.append("---\n\n");
+            }
+
+            Files.write(filePath, sb.toString().getBytes(StandardCharsets.UTF_8));
+            log.info("消息已保存到: {}", filePath.toAbsolutePath());
+        } catch (IOException e) {
+            log.error("保存消息到 Markdown 文件失败", e);
+        }
+    }
+
+    /**
+     * 打印完整的 HTTP 请求报文信息
+     */
+    private void logFullHttpRequest(HttpServletRequest request, ChatRequest chatRequest) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n========== HTTP Request Dump ==========\n");
+
+        // 1. 请求行信息
+        sb.append("【请求行】\n");
+        sb.append("  Method: ").append(request.getMethod()).append("\n");
+        sb.append("  RequestURI: ").append(request.getRequestURI()).append("\n");
+        sb.append("  QueryString: ").append(request.getQueryString()).append("\n");
+        sb.append("  Protocol: ").append(request.getProtocol()).append("\n");
+        sb.append("  Scheme: ").append(request.getScheme()).append("\n");
+        sb.append("  ServerName: ").append(request.getServerName()).append("\n");
+        sb.append("  ServerPort: ").append(request.getServerPort()).append("\n");
+        sb.append("  ContextPath: ").append(request.getContextPath()).append("\n");
+        sb.append("  ServletPath: ").append(request.getServletPath()).append("\n");
+        sb.append("  PathInfo: ").append(request.getPathInfo()).append("\n");
+        sb.append("  RemoteAddr: ").append(request.getRemoteAddr()).append("\n");
+        sb.append("  RemoteHost: ").append(request.getRemoteHost()).append("\n");
+        sb.append("  RemotePort: ").append(request.getRemotePort()).append("\n");
+        sb.append("  LocalAddr: ").append(request.getLocalAddr()).append("\n");
+        sb.append("  LocalName: ").append(request.getLocalName()).append("\n");
+        sb.append("  LocalPort: ").append(request.getLocalPort()).append("\n");
+        sb.append("  CharacterEncoding: ").append(request.getCharacterEncoding()).append("\n");
+        sb.append("  ContentLength: ").append(request.getContentLength()).append("\n");
+        sb.append("  ContentType: ").append(request.getContentType()).append("\n");
+
+        // 2. 所有请求头
+        sb.append("\n【请求头】\n");
+        Enumeration<String> headerNames = request.getHeaderNames();
+        if (headerNames != null) {
+            List<String> headerList = Collections.list(headerNames);
+            Collections.sort(headerList);
+            for (String headerName : headerList) {
+                String headerValue = request.getHeader(headerName);
+                sb.append("  ").append(headerName).append(": ").append(headerValue).append("\n");
+            }
+        } else {
+            sb.append("  (无请求头)\n");
+        }
+
+        // 3. 查询参数
+        sb.append("\n【查询参数】\n");
+        Enumeration<String> paramNames = request.getParameterNames();
+        if (paramNames != null) {
+            while (paramNames.hasMoreElements()) {
+                String paramName = paramNames.nextElement();
+                String[] paramValues = request.getParameterValues(paramName);
+                sb.append("  ").append(paramName).append(": ");
+                if (paramValues != null) {
+                    sb.append(String.join(", ", paramValues));
+                }
+                sb.append("\n");
+            }
+        } else {
+            sb.append("  (无查询参数)\n");
+        }
+
+        // 4. 请求体（通过已解析的 ChatRequest 对象打印）
+        sb.append("\n【请求体 (ChatRequest)】\n");
+        if (chatRequest != null) {
+            try {
+                sb.append("  ").append(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(chatRequest)).append("\n");
+            } catch (JsonProcessingException e) {
+                sb.append("  序列化失败: ").append(e.getMessage()).append("\n");
+            }
+        } else {
+            sb.append("  (空请求体)\n");
+        }
+
+        sb.append("=========================================\n");
+        log.info(sb.toString());
     }
 }

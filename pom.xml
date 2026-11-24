@@ -22,6 +22,7 @@
         <module>txt2img</module>
         <module>novel-to-comic</module>
         <module>gateway</module>
+        <module>comic-workbench</module>
     </modules>
 
     <properties>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>雪漫画 · 小说推文漫画工作台</title>
+  <link rel="stylesheet" th:href="@{/css/styles.css}" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">✦</span><span>雪漫画</span></div>
+      <div class="account"><span class="crown">♛</span><div><strong>贵宾用户</strong><small>VIP · 2077-07-18 到期</small></div></div>
+      <button class="new-script" data-action="new-script">▣ 新建剧本</button>
+      <div class="script-search">⌕ <input placeholder="搜索剧本名字..." /></div>
+      <div class="script-list" id="script-list">
+        <!-- 动态加载 -->
+      </div>
+      <nav class="main-nav">
+        <button data-view="novels">▤ <span>小说库</span></button>
+        <button data-view="assets">♟ <span>资产库</span></button>
+        <button data-view="styles">◉ <span>画风库</span></button>
+        <button data-view="prompts">▤ <span>提示词</span></button>
+        <button data-view="accounts">▥ <span>账号池</span></button>
+      </nav>
+      <div class="version">v1.0.0</div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="top-icons">☁ ◷ ▣ ⇩</div>
+        <button class="upgrade">自动升级 1.0.0</button><span>−</span><span>□</span><span>×</span>
+      </header>
+      <section id="view" class="view"></section>
+    </main>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast" class="toast"></div>
+  <script th:src="@{/js/app.js}"></script>
+</body>
+</html>

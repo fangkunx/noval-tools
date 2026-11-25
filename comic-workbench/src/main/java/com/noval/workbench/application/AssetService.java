@@ -31,6 +31,20 @@ public class AssetService {
         return assetRepository.findByType(type);
     }
 
+    /**
+     * 组合过滤：按 novelId 和/或 type 筛选资产
+     */
+    public List<Asset> listByFilter(AssetType type, Long novelId) {
+        if (novelId != null && type != null) {
+            return assetRepository.findByNovelIdAndType(novelId, type);
+        } else if (novelId != null) {
+            return assetRepository.findByNovelId(novelId);
+        } else if (type != null) {
+            return assetRepository.findByType(type);
+        }
+        return assetRepository.findAll();
+    }
+
     public List<Asset> listByNovelId(Long novelId) {
         return assetRepository.findByNovelId(novelId);
     }

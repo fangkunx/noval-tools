@@ -23,7 +23,9 @@ public class AssetController {
     }
 
     @GetMapping
-    public List<AssetResponse> list(@RequestParam(required = false) String type) {
+    public List<AssetResponse> list(
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) Long novelId) {
         AssetType assetType = null;
         if (type != null && !type.isEmpty()) {
             try {
@@ -32,7 +34,7 @@ public class AssetController {
                 // 非法类型参数，返回全部
             }
         }
-        return assetService.listByType(assetType).stream()
+        return assetService.listByFilter(assetType, novelId).stream()
                 .map(AssetResponse::from)
                 .collect(Collectors.toList());
     }

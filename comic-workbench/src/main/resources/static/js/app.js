@@ -14,6 +14,7 @@ let storyPage = 1;
 let storyPageSize = 10;
 let storyTotal = 0;
 let storyRenderToken = 0; // 防止并发请求时旧响应覆盖新页面
+let assetFilterNovelId = null; // 资产页小说过滤：null = 显示全部
 
 // ========== API 调用 ==========
 async function api(path, options = {}) {
@@ -102,8 +103,19 @@ async function renderNovels() {
 
 // ========== 资产库 ==========
 async function renderAssets() {
+  // 并行加载小说列表和资产
+  let novels = [];
   let assets = [];
-  try { assets = await api('/api/assets'); } catch (e) {}
+  try { novels = await api('/api/novels'); } catch (e) {}
+  try {
+    const novelIdParam = assetFilterNovelId != null ? `&novelId=${assetFilterNovelId}` : '';
+    assets = await api(`/api/assets?1=1${novelIdParam}`);
+  } catch (e) {}
+
+  // 构建小说过滤芯片（最多显示若干，超出用"显示全部" + 搜索）
+  const maxVisible = 12;
+  const visibleNovels = novels.slice(0, maxVisible);
+  const hasMore = novels.length > maxVisible;
 
   view.innerHTML = `
     <div class="assets">
@@ -124,6 +136,18 @@ async function renderAssets() {
         <button class="chip">现代</button>
         <button class="chip">科幻</button>
         <button class="chip">玄幻</button>
+      </div>
+      <div class="novel-filter-bar">
+        <span class="filter-label">小说：</span>
+        <div class="novel-filter-chips">
+          <button class="chip ${assetFilterNovelId === null ? 'active' : ''}" data-action="filter-asset-novel" data-novel-id="">显示全部</button>
+          ${visibleNovels.map(n => `
+            <button class="chip ${assetFilterNovelId === n.id ? 'active' : ''}"
+                    data-action="filter-asset-novel" data-novel-id="${n.id}"
+                    title="${escapeHtml(n.title || '')}">${escapeHtml((n.title || '未命名').substring(0, 12))}</button>
+          `).join('')}
+          ${hasMore ? `<button class="chip" data-action="open-novel-filter-search">＋ 更多</button>` : ''}
+        </div>
       </div>
       <div class="grid">
         ${addCard('创建资产')}
@@ -512,13 +536,14 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // 小说选择（侧边栏剧本）
+  // 小说选择（侧边栏剧本）- 点击小说名称自动跳转到分镜台
   if (novelId && !action) {
     currentNovelId = parseInt(novelId);
     storyPage = 1; // 重置分页
     document.querySelectorAll('.script').forEach(s => s.classList.remove('active'));
     target.classList.add('active');
-    if (currentView === 'story') renderStory();
+    // 自动切换到分镜台视图并展示该小说的分镜详情
+    show('story');
     return;
   }
 
@@ -530,6 +555,13 @@ document.addEventListener('click', async (e) => {
   }
 
   switch (action) {
+    case 'filter-asset-novel': {
+      const rawId = target.dataset.novelId;
+      assetFilterNovelId = rawId === '' ? null : parseInt(rawId);
+      renderAssets();
+      break;
+    }
+
     case 'save-novel-detail': {
       const nId = target.dataset.novelId;
       const newTitle = document.querySelector('#novel-detail-title')?.value || '';
@@ -1221,11 +1253,13 @@ async function handleSave() {
       const type = document.querySelector('#asset-type')?.value || 'CHARACTER';
       const style = document.querySelector('#asset-style')?.value || 'ANCIENT';
       const description = document.querySelector('#asset-desc')?.value || '';
+      // 优先使用资产过滤的小说，否则用当前选中的小说
+      const bindNovelId = assetFilterNovelId || currentNovelId;
 
       if (name) {
         await api('/api/assets', {
           method: 'POST',
-          body: JSON.stringify({ name, type, style, description, imageUrl: '', novelId: currentNovelId })
+          body: JSON.stringify({ name, type, style, description, imageUrl: '', novelId: bindNovelId })
         });
         notify('资产已创建');
         modalRoot.innerHTML = '';

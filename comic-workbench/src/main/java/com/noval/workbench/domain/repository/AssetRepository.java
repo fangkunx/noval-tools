@@ -12,6 +12,7 @@ public interface AssetRepository {
     List<Asset> findAll();
     List<Asset> findByType(AssetType type);
     List<Asset> findByNovelId(Long novelId);
+    List<Asset> findByNovelIdAndType(Long novelId, AssetType type);
     Optional<Asset> findById(Long id);
     Asset save(Asset asset);
     void deleteById(Long id);

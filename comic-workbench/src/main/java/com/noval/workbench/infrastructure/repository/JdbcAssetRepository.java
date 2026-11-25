@@ -40,6 +40,13 @@ public class JdbcAssetRepository implements AssetRepository {
     }
 
     @Override
+    public List<Asset> findByNovelIdAndType(Long novelId, AssetType type) {
+        return jdbcTemplate.query(
+                "SELECT * FROM asset WHERE novel_id = ? AND type = ?",
+                new AssetRowMapper(), novelId, type.name());
+    }
+
+    @Override
     public Optional<Asset> findById(Long id) {
         List<Asset> results = jdbcTemplate.query(
                 "SELECT * FROM asset WHERE id = ?", new AssetRowMapper(), id);

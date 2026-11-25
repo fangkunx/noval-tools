@@ -883,29 +883,34 @@ document.addEventListener('click', async (e) => {
     case 'preset-batch-delete': {
       const panel = document.getElementById('preset-panel-body');
       if (!panel) break;
-      const cards = panel.querySelectorAll('.preset-card');
-      const toRemove = [];
-      cards.forEach(c => { if (c.querySelector('.preset-check:checked')) toRemove.push(c); });
-      if (toRemove.length === 0) { notify('请先勾选要删除的预设'); break; }
-      toRemove.forEach(c => c.remove());
+      // 从各个原始分组（角色/场景/道具）中收集要删除的卡片
+      ['characters', 'scenes', 'props'].forEach(sectionId => {
+        const section = document.getElementById(`preset-${sectionId}`);
+        if (!section) return;
+        const toRemove = [];
+        section.querySelectorAll('.preset-card').forEach(c => {
+          if (c.querySelector('.preset-check:checked')) toRemove.push(c);
+        });
+        toRemove.forEach(c => c.remove());
+      });
       refreshAllPresetList();
       updatePresetSelectedCount();
-      notify(`已删除 ${toRemove.length} 个预设`);
+      notify('已删除所选预设');
       break;
     }
 
     case 'remove-preset-item': {
       const type = target.dataset.type;
       const name = target.dataset.name;
+      // 从原始分组（角色/场景/道具）中删除，再同步"全部"列表
       const list = document.querySelector(`#preset-${type}s`);
-      const allList = document.querySelector('#preset-all');
-      [list, allList].forEach(l => {
-        if (!l) return;
-        l.querySelectorAll('.preset-card').forEach(el => {
-          const nameInput = el.querySelector('.preset-card-name');
-          if (nameInput && nameInput.value === name) el.remove();
+      if (list) {
+        list.querySelectorAll('.preset-card').forEach(el => {
+          const titleDiv = el.querySelector('.preset-card-title');
+          if (titleDiv && titleDiv.textContent === name) el.remove();
         });
-      });
+      }
+      refreshAllPresetList();
       updatePresetSelectedCount();
       break;
     }

@@ -896,6 +896,8 @@ document.addEventListener('click', async (e) => {
       refreshAllPresetList();
       updatePresetSelectedCount();
       notify('已删除所选预设');
+      // 自动保存
+      await autoSavePresets();
       break;
     }
 
@@ -912,6 +914,9 @@ document.addEventListener('click', async (e) => {
       }
       refreshAllPresetList();
       updatePresetSelectedCount();
+      notify(`已删除 ${type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具'}: ${name}`);
+      // 自动保存
+      await autoSavePresets();
       break;
     }
 
@@ -1794,6 +1799,26 @@ function collectPresetItems(type) {
     if (name.trim()) items.push({ name: name.trim(), description: desc.trim(), type: type.toUpperCase(), imageUrl: '' });
   });
   return items;
+}
+
+/**
+ * 自动保存预设数据（删除/编辑等操作后自动调用）
+ * 静默保存，失败时仅显示提示
+ */
+async function autoSavePresets() {
+  if (!currentNovelId) return;
+  try {
+    const plotSummary = document.querySelector('#preset-plot-summary')?.value || '';
+    const characters = collectPresetItems('character');
+    const scenes = collectPresetItems('scene');
+    const props = collectPresetItems('prop');
+    await api('/api/presets', {
+      method: 'POST',
+      body: JSON.stringify({ novelId: currentNovelId, plotSummary, characters, scenes, props })
+    });
+  } catch (e) {
+    notify('自动保存失败: ' + e.message);
+  }
 }
 
 function refreshAllPresetList() {

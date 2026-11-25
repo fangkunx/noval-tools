@@ -104,12 +104,11 @@ public class ShotService {
                 .build());
     }
 
-    public void batchInfer(Long novelId, String scope, int page) {
+    public void batchInfer(Long novelId, String scope, int page, int size) {
         List<Shot> shots;
-        if ("page".equals(scope)) {
-            int pageSize = 10; // 默认页大小
-            int offset = (page - 1) * pageSize;
-            shots = shotRepository.findByNovelIdPaged(novelId, offset, pageSize);
+        if ("page".equals(scope) && size > 0) {
+            int offset = (page - 1) * size;
+            shots = shotRepository.findByNovelIdPaged(novelId, offset, size);
         } else {
             shots = shotRepository.findByNovelId(novelId);
         }
@@ -132,12 +131,11 @@ public class ShotService {
         }
     }
 
-    public void batchGenerate(Long novelId, String scope, int page) {
+    public void batchGenerate(Long novelId, String scope, int page, int size) {
         List<Shot> shots;
-        if ("page".equals(scope)) {
-            int pageSize = 10;
-            int offset = (page - 1) * pageSize;
-            shots = shotRepository.findByNovelIdPaged(novelId, offset, pageSize);
+        if ("page".equals(scope) && size > 0) {
+            int offset = (page - 1) * size;
+            shots = shotRepository.findByNovelIdPaged(novelId, offset, size);
         } else {
             shots = shotRepository.findByNovelId(novelId);
         }

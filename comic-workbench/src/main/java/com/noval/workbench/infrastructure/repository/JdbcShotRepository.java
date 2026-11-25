@@ -27,14 +27,15 @@ public class JdbcShotRepository implements ShotRepository {
     @Override
     public List<Shot> findByNovelId(Long novelId) {
         return jdbcTemplate.query(
-                "SELECT * FROM shot WHERE novel_id = ? ORDER BY sequence",
+                "SELECT * FROM shot WHERE novel_id = ? ORDER BY sequence, id",
                 new ShotRowMapper(), novelId);
     }
 
     @Override
     public List<Shot> findByNovelIdPaged(Long novelId, int offset, int limit) {
+        // ORDER BY sequence, id：以 id 作为稳定平手键，保证分页结果确定、不重不漏
         return jdbcTemplate.query(
-                "SELECT * FROM shot WHERE novel_id = ? ORDER BY sequence LIMIT ? OFFSET ?",
+                "SELECT * FROM shot WHERE novel_id = ? ORDER BY sequence, id LIMIT ? OFFSET ?",
                 new ShotRowMapper(), novelId, limit, offset);
     }
 

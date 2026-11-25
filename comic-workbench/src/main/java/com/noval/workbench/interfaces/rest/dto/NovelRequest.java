@@ -9,7 +9,8 @@ public class NovelRequest {
     private String title;
     private String content;
     private String source;
-    private boolean vip;
+    /** 包装类型：null 表示请求未提供该字段（用于局部更新时保留原值） */
+    private Boolean vip;
     private String status;
 
     public Novel toDomain() {
@@ -17,7 +18,7 @@ public class NovelRequest {
                 .title(title)
                 .content(content)
                 .source(source)
-                .vip(vip)
+                .vip(vip != null && vip)
                 .status(status)
                 .build();
     }
@@ -28,8 +29,8 @@ public class NovelRequest {
     public void setContent(String content) { this.content = content; }
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
-    public boolean isVip() { return vip; }
-    public void setVip(boolean vip) { this.vip = vip; }
+    public Boolean getVip() { return vip; }
+    public void setVip(Boolean vip) { this.vip = vip; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 }

@@ -13,6 +13,7 @@ let currentView = 'novels';
 let storyPage = 1;
 let storyPageSize = 10;
 let storyTotal = 0;
+let storyRenderToken = 0; // 防止并发请求时旧响应覆盖新页面
 
 // ========== API 调用 ==========
 async function api(path, options = {}) {
@@ -236,21 +237,28 @@ async function renderStory() {
     return;
   }
 
+  const token = ++storyRenderToken;
+  const novelId = currentNovelId;
+  const page = storyPage;
+  const size = storyPageSize;
+
   let shots = [];
   let total = 0;
   try {
-    const result = await api(`/api/shots?novelId=${currentNovelId}&page=${storyPage}&size=${storyPageSize}`);
+    const result = await api(`/api/shots?novelId=${novelId}&page=${page}&size=${size}`);
+    if (token !== storyRenderToken) return; // 已有更新的渲染请求，丢弃本次结果
     shots = result.data || [];
     total = result.total || 0;
     storyTotal = total;
   } catch (e) {}
   let novel = null;
-  try { novel = await api(`/api/novels/${currentNovelId}`); } catch (e) {}
+  try { novel = await api(`/api/novels/${novelId}`); } catch (e) {}
+  if (token !== storyRenderToken) return;
 
   const totalPages = storyPageSize > 0 ? Math.ceil(total / storyPageSize) : 1;
 
   view.innerHTML = `
-    <div>
+    <div class="story-view">
       ${shell('小说分镜台', `《${novel ? novel.title : '未命名'}》 · 共 ${total} 个分镜`,
         `<button class="btn" data-action="batch-infer">批量推理</button>
          <button class="btn teal" data-action="batch-generate">批量生图</button>
@@ -441,9 +449,22 @@ document.addEventListener('focusout', async (e) => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
+        // 先取完整分镜，再合并本次修改的字段后整体提交（PUT 为全量语义）
+        const shot = await api(`/api/shots/${shotId}`);
         await api(`/api/shots/${shotId}`, {
           method: 'PUT',
-          body: JSON.stringify({ [field]: value })
+          body: JSON.stringify({
+            novelId: shot.novelId,
+            sequence: shot.sequence,
+            originalText: shot.originalText,
+            sceneDescription: shot.sceneDescription,
+            promptText: shot.promptText,
+            mainImageUrl: shot.mainImageUrl,
+            altImageUrls: shot.altImageUrls,
+            tags: shot.tags,
+            state: shot.state,
+            [field]: value
+          })
         });
         target.style.borderColor = 'var(--teal)';
         setTimeout(() => { target.style.borderColor = ''; }, 800);
@@ -775,9 +796,9 @@ document.addEventListener('click', async (e) => {
       const type = target.dataset.type;
       modalRoot.innerHTML = '';
       try {
-        const params = scope === 'all'
+        const params = (scope === 'all' || storyPageSize <= 0)
           ? `novelId=${currentNovelId}&scope=all`
-          : `novelId=${currentNovelId}&scope=page&page=${storyPage}`;
+          : `novelId=${currentNovelId}&scope=page&page=${storyPage}&size=${storyPageSize}`;
         const endpoint = type === 'infer' ? '/api/shots/batch-infer' : '/api/shots/batch-generate';
         await api(`${endpoint}?${params}`, { method: 'POST' });
         notify(scope === 'all' ? `已提交全部 ${storyTotal} 个分镜` : '已提交当前页');
@@ -893,99 +914,140 @@ document.addEventListener('click', async (e) => {
       const type = target.dataset.type;
       const list = document.querySelector(`#preset-${type}s`);
       if (!list) break;
-      const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
-      const div = document.createElement('div');
-      div.className = 'preset-card preset-card--editing';
-      div.dataset.type = type;
-      div.innerHTML = `<input type="checkbox" class="preset-check" checked onchange="updatePresetSelectedCount()" />
-        <div class="preset-card-main">
-          <input class="preset-edit-name" placeholder="${label}名称…" />
-          <input class="preset-edit-desc" placeholder="描述 / 出处…" />
-        </div>
-        <div class="preset-card-actions">
-          <button class="preset-act-add" data-action="confirm-add-preset">确认</button>
-          <button class="preset-act-cancel">取消</button>
-        </div>`;
-      list.prepend(div);
-      div.querySelector('.preset-edit-name')?.focus();
-      break;
-    }
-
-    case 'confirm-add-preset': {
-      const card = target.closest('.preset-card');
-      if (!card) break;
-      const type = card.dataset.type;
-      const name = card.querySelector('.preset-edit-name')?.value?.trim() || '';
-      const desc = card.querySelector('.preset-edit-desc')?.value?.trim() || '';
-      if (!name) { notify('请输入名称'); return; }
-      // 替换为展示态
-      const list = card.parentElement;
-      const newCard = document.createElement('div');
-      newCard.className = 'preset-card';
-      newCard.dataset.type = type;
-      newCard.innerHTML = `<input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
-        <div class="preset-card-main">
-          <div class="preset-card-title">${escapeHtml(name)}</div>
-          <div class="preset-card-desc">${escapeHtml(desc || '暂无描述')}</div>
-        </div>
-        <div class="preset-card-actions">
-          <button class="preset-act-add">添加</button>
-          <button class="preset-act-edit" data-action="edit-preset-item" data-type="${type}" data-name="${escapeHtml(name)}" data-desc="${escapeHtml(desc)}">编辑</button>
-          <button class="preset-act-del" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(name)}">删除</button>
-        </div>`;
-      card.replaceWith(newCard);
-      updatePresetSelectedCount();
+      // 打开弹窗新建预设，传入 null 表示新建模式
+      openPresetEditModal(type, '', '', null, list);
       break;
     }
 
     case 'edit-preset-item': {
-      const type = target.dataset.type;
-      const oldName = target.dataset.name;
-      const oldDesc = target.dataset.desc;
-      const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
       const card = target.closest('.preset-card');
       if (!card) break;
-      card.className = 'preset-card preset-card--editing';
-      card.innerHTML = `<input type="checkbox" class="preset-check" checked onchange="updatePresetSelectedCount()" />
-        <div class="preset-card-main">
-          <input class="preset-edit-name" placeholder="${label}名称…" value="${escapeHtml(oldName)}" />
-          <input class="preset-edit-desc" placeholder="描述 / 出处…" value="${escapeHtml(oldDesc)}" />
-        </div>
-        <div class="preset-card-actions">
-          <button class="preset-act-add" data-action="confirm-edit-preset" data-type="${type}">保存</button>
-          <button class="preset-act-cancel" data-action="cancel-edit-preset" data-name="${escapeHtml(oldName)}">取消</button>
-        </div>`;
-      card.querySelector('.preset-edit-name')?.focus();
+      const type = card.dataset.type || target.dataset.type;
+      // Read current values from the card
+      const titleDiv = card.querySelector('.preset-card-title');
+      const descDiv = card.querySelector('.preset-card-desc');
+      const name = titleDiv?.textContent || target.dataset.name || '';
+      const desc = descDiv?.textContent || target.dataset.desc || '';
+      openPresetEditModal(type, name, desc, card);
       break;
     }
 
-    case 'confirm-edit-preset': {
-      const type = target.dataset.type;
-      const card = target.closest('.preset-card');
-      if (!card) break;
-      const newName = card.querySelector('.preset-edit-name')?.value?.trim() || '';
-      const newDesc = card.querySelector('.preset-edit-desc')?.value?.trim() || '';
-      if (!newName) { notify('请输入名称'); return; }
-      card.className = 'preset-card';
-      card.innerHTML = `<input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
-        <div class="preset-card-main">
-          <div class="preset-card-title">${escapeHtml(newName)}</div>
-          <div class="preset-card-desc">${escapeHtml(newDesc || '暂无描述')}</div>
-        </div>
-        <div class="preset-card-actions">
-          <button class="preset-act-add">添加</button>
-          <button class="preset-act-edit" data-action="edit-preset-item" data-type="${type}" data-name="${escapeHtml(newName)}" data-desc="${escapeHtml(newDesc)}">编辑</button>
-          <button class="preset-act-del" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(newName)}">删除</button>
-        </div>`;
-      // 同步全部列表
+    case 'save-preset-edit': {
+      const modal = modalRoot.querySelector('.preset-edit-modal');
+      if (!modal) break;
+      const cardEl = modal._editingCard;
+      const targetList = modal._targetList;
+      const presetType = modal._presetType || (cardEl ? cardEl.dataset.type : 'character');
+      const oldName = modal.dataset.originalName || '';
+      const newName = modal.querySelector('#preset-edit-name')?.value?.trim() || '';
+      const rawDesc = modal.querySelector('#preset-edit-desc')?.value?.trim() || '';
+      // 合并类型专属字段到描述中
+      const newDesc = mergeTypeSpecificDesc(presetType, rawDesc, modal);
+      if (!newName) { notify('请输入名称'); break; }
+
+      if (cardEl) {
+        // 编辑模式：更新现有卡片
+        const type = cardEl.dataset.type;
+        // Find all cards with the old name in both individual sections and "all" tab
+        const allCards = document.querySelectorAll(`.preset-card[data-type="${type}"]`);
+        allCards.forEach(card => {
+          const titleDiv = card.querySelector('.preset-card-title');
+          const descDiv = card.querySelector('.preset-card-desc');
+          if (titleDiv && (titleDiv.textContent === oldName || card === cardEl)) {
+            titleDiv.textContent = newName;
+            if (descDiv) descDiv.textContent = newDesc || '暂无描述';
+            // Update edit button data attributes
+            const editBtn = card.querySelector('[data-action="edit-preset-item"]');
+            if (editBtn) {
+              editBtn.dataset.name = newName;
+              editBtn.dataset.desc = newDesc;
+            }
+            // Update delete button data attributes
+            const delBtn = card.querySelector('[data-action="remove-preset-item"]');
+            if (delBtn) delBtn.dataset.name = newName;
+          }
+        });
+      } else if (targetList) {
+        // 新建模式：创建新卡片并插入列表
+        const type = targetList.id.replace('preset-', '').replace(/s$/, ''); // 从 id 提取类型
+        const newCard = document.createElement('div');
+        newCard.className = 'preset-card';
+        newCard.dataset.type = type;
+        newCard.innerHTML = `<input type="checkbox" class="preset-check" onchange="updatePresetSelectedCount()" />
+          <div class="preset-card-main">
+            <div class="preset-card-title">${escapeHtml(newName)}</div>
+            <div class="preset-card-desc">${escapeHtml(newDesc || '暂无描述')}</div>
+          </div>
+          <div class="preset-card-actions">
+            <button class="preset-act-add">添加</button>
+            <button class="preset-act-edit" data-action="edit-preset-item" data-type="${type}" data-name="${escapeHtml(newName)}" data-desc="${escapeHtml(newDesc)}">编辑</button>
+            <button class="preset-act-del" data-action="remove-preset-item" data-type="${type}" data-name="${escapeHtml(newName)}">删除</button>
+          </div>`;
+        targetList.prepend(newCard);
+
+        // 清除空状态提示
+        const emptyEl = targetList.querySelector('.sp-empty');
+        if (emptyEl) emptyEl.remove();
+      }
+
       refreshAllPresetList();
-      updatePresetSelectedCount();
+      modalRoot.innerHTML = '';
+      notify(cardEl ? '预设已保存' : '预设已添加');
       break;
     }
 
-    case 'cancel-edit-preset': {
-      // 直接重新打开预设面板以恢复原状（简单做法）
-      openPresetPanel();
+    case 'cancel-preset-edit':
+      modalRoot.innerHTML = '';
+      break;
+
+    case 'generate-preset-image': {
+      const modal = modalRoot.querySelector('.preset-edit-modal');
+      if (!modal) break;
+      const type = modal._presetType || 'character';
+      const name = modal.querySelector('#preset-edit-name')?.value?.trim() || '';
+      const desc = modal.querySelector('#preset-edit-desc')?.value?.trim() || '';
+      const styleId = modal.querySelector('#preset-edit-style')?.value || '';
+      const aspectRatio = modal.querySelector('#preset-edit-ratio')?.value || '9:16';
+      const customPrompt = modal.querySelector('#preset-edit-prompt')?.value?.trim() || '';
+      if (!name) { notify('请先输入名称'); break; }
+
+      const preview = modal.querySelector('.preset-edit-image-preview');
+      const btn = modal.querySelector('.preset-edit-generate-btn');
+      if (!preview || !btn) break;
+
+      // Show loading state
+      btn.disabled = true;
+      btn.textContent = '生成中...';
+
+      // 移除旧的 loading / 图片
+      preview.querySelectorAll('.preset-edit-loading, img').forEach(el => el.remove());
+      const loadingEl = document.createElement('div');
+      loadingEl.className = 'preset-edit-loading';
+      loadingEl.innerHTML = '<div class="preset-edit-spinner"></div><div>正在生成图片...</div>';
+      preview.appendChild(loadingEl);
+
+      try {
+        const prompt = buildPresetPrompt(type, name, desc, modal, customPrompt);
+        const arts = await loadStyleList();
+        if (styleId) {
+          const style = arts.find(s => String(s.id) === String(styleId));
+          if (style?.description) prompt.promptText += `，画风：${style.description}`;
+        }
+
+        notify(`图片生成功能待接入后端 AI 服务（${prompt.typeName} / ${aspectRatio}）`);
+        loadingEl.remove();
+        // 展示占位提示
+        const empty = document.createElement('div');
+        empty.className = 'preset-edit-image-empty';
+        empty.textContent = '待接入 AI 服务，暂无法出图';
+        preview.appendChild(empty);
+      } catch (e) {
+        loadingEl.remove();
+        notify('生成失败: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '生成图片';
+      }
       break;
     }
 
@@ -1332,6 +1394,264 @@ function closePresetPanel() {
   }
 }
 
+// ========== 预设编辑弹窗 ==========
+// cardEl: 编辑时传入被编辑的卡片，新建时传入 null
+// targetList: 新建时传入目标列表容器，用于插入新卡片
+async function openPresetEditModal(type, name, desc, cardEl, targetList = null) {
+  const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
+  const isNew = !cardEl;
+
+  // 拆出描述中的类型专属字段，避免编辑时重复叠加
+  const parsed = splitTypeSpecificDesc(type, desc);
+  const baseDesc = parsed.base;
+
+  // 根据类型生成不同的专属字段
+  const typeFields = {
+    character: `
+      <div class="preset-edit-field">
+        <label>外貌</label>
+        <input id="preset-edit-appearance" type="text" placeholder="如：黑发长发、红瞳、高个子" />
+      </div>
+      <div class="preset-edit-field">
+        <label>服饰</label>
+        <input id="preset-edit-clothing" type="text" placeholder="如：古风长裙、现代休闲装" />
+      </div>`,
+    scene: `
+      <div class="preset-edit-field">
+        <label>时段</label>
+        <select id="preset-edit-time">
+          <option value="">不限</option>
+          <option value="morning">清晨</option>
+          <option value="noon">正午</option>
+          <option value="afternoon">午后</option>
+          <option value="evening">傍晚</option>
+          <option value="night">夜晚</option>
+        </select>
+      </div>
+      <div class="preset-edit-field">
+        <label>氛围</label>
+        <input id="preset-edit-mood" type="text" placeholder="如：温馨、压抑、热闹" />
+      </div>`,
+    prop: `
+      <div class="preset-edit-field">
+        <label>材质</label>
+        <input id="preset-edit-material" type="text" placeholder="如：金属、木质、玉石" />
+      </div>
+      <div class="preset-edit-field">
+        <label>年代风格</label>
+        <select id="preset-edit-era">
+          <option value="">不限</option>
+          <option value="ancient">古代</option>
+          <option value="medieval">中世纪</option>
+          <option value="modern">现代</option>
+          <option value="future">未来</option>
+        </select>
+      </div>`
+  };
+
+  // Load styles for dropdown
+  let styles = [];
+  try { styles = await api('/api/styles'); } catch (e) {}
+
+  const styleOptions = styles.map(s =>
+    `<option value="${s.id}">${escapeHtml(s.name)}</option>`
+  ).join('');
+
+  modalRoot.innerHTML = `
+    <div class="modal-back preset-edit-back">
+      <div class="modal preset-edit-modal">
+        <div class="preset-edit-header">
+          <h3>${isNew ? '添加' : '编辑'}${label}<small>${isNew ? '' : escapeHtml(name)}</small></h3>
+          <button class="side-panel-close" data-action="cancel-preset-edit">×</button>
+        </div>
+        <div class="preset-edit-body">
+          <div class="preset-edit-left">
+            <div class="preset-edit-field">
+              <label>${label}名称</label>
+              <input id="preset-edit-name" type="text" value="${escapeHtml(name)}" placeholder="请输入${label}名称" />
+            </div>
+            <div class="preset-edit-field">
+              <label>描述 / 出处</label>
+              <textarea id="preset-edit-desc" placeholder="描述该${label}的特征、背景或出处...">${escapeHtml(baseDesc)}</textarea>
+            </div>
+            ${typeFields[type] || ''}
+            <div class="preset-edit-field">
+              <label>画风库</label>
+              <select id="preset-edit-style">
+                <option value="">默认画风</option>
+                ${styleOptions}
+              </select>
+            </div>
+            <div class="preset-edit-field">
+              <label>宽高比</label>
+              <select id="preset-edit-ratio">
+                <option value="9:16">9:16 竖版</option>
+                <option value="4:3">4:3 横版</option>
+                <option value="1:1">1:1 方形</option>
+              </select>
+            </div>
+            <div class="preset-edit-field">
+              <label>自定义提示词 <small style="color:#666">(可选，覆盖默认)</small></label>
+              <textarea id="preset-edit-prompt" placeholder="输入自定义图片生成提示词..."></textarea>
+            </div>
+          </div>
+          <div class="preset-edit-right">
+            <div class="preset-edit-image-preview">
+              <div class="preset-edit-image-empty">
+                点击「生成图片」预览效果
+              </div>
+            </div>
+            <button class="preset-edit-generate-btn" data-action="generate-preset-image">生成图片</button>
+          </div>
+        </div>
+        <div class="preset-edit-footer">
+          <button class="btn" data-action="cancel-preset-edit">取消</button>
+          <button class="btn gold" data-action="save-preset-edit">保存</button>
+        </div>
+      </div>
+    </div>`;
+
+  // Store reference to the card being edited and the original name
+  const modal = modalRoot.querySelector('.preset-edit-modal');
+  if (modal) {
+    modal._editingCard = cardEl;
+    modal._targetList = targetList;
+    modal._presetType = type;
+    modal.dataset.originalName = name;
+
+    // 回填类型专属字段（编辑模式）
+    (TYPE_FIELD_LABELS[type] || []).forEach(def => {
+      const val = parsed.values[def.label];
+      if (!val) return;
+      const el = modal.querySelector(`#${def.id}`);
+      if (!el) return;
+      if (def.isSelect) {
+        // 反查 select 的 value（如 时段：清晨 → morning）
+        const map = type === 'scene' ? TIME_LABELS : ERA_LABELS;
+        const key = Object.keys(map).find(k => map[k] === val);
+        el.value = key || '';
+      } else {
+        el.value = val;
+      }
+    });
+  }
+
+  // 新建模式下聚焦到名称输入框
+  if (isNew) {
+    setTimeout(() => {
+      modal?.querySelector('#preset-edit-name')?.focus();
+    }, 100);
+  }
+}
+
+// 类型专属字段的标签定义（用于描述合并/拆分）
+const TYPE_FIELD_LABELS = {
+  character: [{ id: 'preset-edit-appearance', label: '外貌' }, { id: 'preset-edit-clothing', label: '服饰' }],
+  scene: [{ id: 'preset-edit-time', label: '时段', isSelect: true }, { id: 'preset-edit-mood', label: '氛围' }],
+  prop: [{ id: 'preset-edit-material', label: '材质' }, { id: 'preset-edit-era', label: '年代风格', isSelect: true }]
+};
+
+const TIME_LABELS = { morning: '清晨', noon: '正午', afternoon: '午后', evening: '傍晚', night: '夜晚' };
+const ERA_LABELS = { ancient: '古代', medieval: '中世纪', modern: '现代', future: '未来' };
+
+/** 将类型专属字段合并进描述文本，格式：基础描述 | 外貌：xxx | 服饰：xxx */
+function mergeTypeSpecificDesc(type, baseDesc, modal) {
+  const defs = TYPE_FIELD_LABELS[type] || [];
+  const parts = [];
+  if (baseDesc) parts.push(baseDesc);
+  defs.forEach(def => {
+    const el = modal.querySelector(`#${def.id}`);
+    if (!el) return;
+    let val = (el.value || '').trim();
+    if (def.isSelect) {
+      if (type === 'scene') val = TIME_LABELS[val] || '';
+      else if (type === 'prop') val = ERA_LABELS[val] || '';
+    }
+    if (val) parts.push(`${def.label}：${val}`);
+  });
+  return parts.join(' | ');
+}
+
+/** 从描述文本中拆出类型专属字段，返回 { base, values: { label: value } } */
+function splitTypeSpecificDesc(type, desc) {
+  const defs = TYPE_FIELD_LABELS[type] || [];
+  const result = { base: desc || '', values: {} };
+  if (!desc) return result;
+  const segs = desc.split('|').map(s => s.trim());
+  const baseParts = [];
+  segs.forEach(seg => {
+    const m = seg.match(/^([^：]+)：(.*)$/);
+    if (m) {
+      const label = m[1].trim();
+      const val = m[2].trim();
+      const matched = defs.find(d => d.label === label);
+      if (matched) {
+        result.values[label] = val;
+        return;
+      }
+    }
+    if (seg) baseParts.push(seg);
+  });
+  result.base = baseParts.join(' | ');
+  return result;
+}
+
+let _styleCache = null;
+async function loadStyleList() {
+  if (_styleCache) return _styleCache;
+  try { _styleCache = await api('/api/styles'); } catch (e) { _styleCache = []; }
+  return _styleCache;
+}
+
+/**
+ * 根据预设类型构建图片生成提示词
+ * 不同类型的专属字段会拼接成行为主体描述
+ */
+function buildPresetPrompt(type, name, desc, modal, customPrompt) {
+  if (customPrompt) {
+    return { typeName: type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具', promptText: customPrompt };
+  }
+
+  let subject;
+  let details = [];
+  let negative = '';
+
+  if (type === 'character') {
+    const appearance = modal.querySelector('#preset-edit-appearance')?.value?.trim() || '';
+    const clothing = modal.querySelector('#preset-edit-clothing')?.value?.trim() || '';
+    subject = `角色形象：${name}`;
+    if (desc) details.push(desc);
+    if (appearance) details.push(`外貌：${appearance}`);
+    if (clothing) details.push(`服饰：${clothing}`);
+    negative = '多余手指，扭曲肢体，低分辨率，模糊';
+  } else if (type === 'scene') {
+    const time = modal.querySelector('#preset-edit-time')?.value || '';
+    const mood = modal.querySelector('#preset-edit-mood')?.value?.trim() || '';
+    const timeMap = { morning: '清晨', noon: '正午', afternoon: '午后', evening: '傍晚', night: '夜晚' };
+    subject = `场景环境：${name}`;
+    if (desc) details.push(desc);
+    if (timeMap[time]) details.push(`时段：${timeMap[time]}`);
+    if (mood) details.push(`氛围：${mood}`);
+    negative = '人物，文字，水印，低分辨率，模糊';
+  } else {
+    const material = modal.querySelector('#preset-edit-material')?.value?.trim() || '';
+    const era = modal.querySelector('#preset-edit-era')?.value || '';
+    const eraMap = { ancient: '古代', medieval: '中世纪', modern: '现代', future: '未来' };
+    subject = `道具特写：${name}`;
+    if (desc) details.push(desc);
+    if (material) details.push(`材质：${material}`);
+    if (eraMap[era]) details.push(`年代风格：${eraMap[era]}`);
+    negative = '人物，文字，水印，低分辨率，模糊';
+  }
+
+  const promptText = details.length > 0 ? `${subject}。${details.join('。')}` : subject;
+  return {
+    typeName: type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具',
+    promptText,
+    negativePrompt: negative
+  };
+}
+
 function renderPresetItem(item, type) {
   const label = type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具';
   return `<div class="preset-card" data-type="${type}">
@@ -1457,8 +1777,15 @@ function collectPresetItems(type) {
   if (!list) return [];
   const items = [];
   list.querySelectorAll('.preset-card').forEach(el => {
-    const name = el.querySelector('.preset-card-name')?.value || '';
-    const desc = el.querySelector('.preset-card-desc')?.value || '';
+    // 编辑态：input 元素
+    const editNameInput = el.querySelector('.preset-edit-name');
+    const editDescInput = el.querySelector('.preset-edit-desc');
+    // 展示态：div 元素
+    const titleDiv = el.querySelector('.preset-card-title');
+    const descDiv = el.querySelector('.preset-card-desc');
+
+    const name = editNameInput?.value || titleDiv?.textContent || '';
+    const desc = editDescInput?.value || descDiv?.textContent || '';
     if (name.trim()) items.push({ name: name.trim(), description: desc.trim(), type: type.toUpperCase(), imageUrl: '' });
   });
   return items;

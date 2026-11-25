@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -46,10 +47,21 @@ public class NovelController {
 
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable Long id, @RequestBody NovelRequest request) {
-        if (!novelService.getById(id).isPresent()) {
+        Optional<Novel> opt = novelService.getById(id);
+        if (!opt.isPresent()) {
             return ResponseEntity.status(404).body((Object) new ErrorResponse("Not Found", "小说不存在"));
         }
-        Novel updated = novelService.update(id, request.toDomain());
+        // 局部合并更新：请求中未提供的字段保留原值，避免只改标题/内容时清空 vip/source/status
+        Novel existing = opt.get();
+        Novel merged = Novel.builder()
+                .id(id)
+                .title(request.getTitle() != null ? request.getTitle() : existing.getTitle())
+                .content(request.getContent() != null ? request.getContent() : existing.getContent())
+                .source(request.getSource() != null ? request.getSource() : existing.getSource())
+                .vip(request.getVip() != null ? request.getVip() : existing.isVip())
+                .status(request.getStatus() != null ? request.getStatus() : existing.getStatus())
+                .build();
+        Novel updated = novelService.update(id, merged);
         return ResponseEntity.ok((Object) NovelResponse.from(updated));
     }
 

@@ -2,6 +2,7 @@ package com.noval.workbench.interfaces.rest;
 
 import com.noval.workbench.application.ShotService;
 import com.noval.workbench.domain.model.Shot;
+import com.noval.workbench.domain.model.ShotState;
 import com.noval.workbench.interfaces.rest.dto.ShotRequest;
 import com.noval.workbench.interfaces.rest.dto.ShotResponse;
 import com.noval.workbench.interfaces.rest.dto.ErrorResponse;
@@ -9,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RestController
@@ -73,10 +75,26 @@ public class ShotController {
 
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable Long id, @RequestBody ShotRequest request) {
-        if (!shotService.getById(id).isPresent()) {
+        Optional<Shot> opt = shotService.getById(id);
+        if (!opt.isPresent()) {
             return ResponseEntity.status(404).body((Object) new ErrorResponse("Not Found", "分镜不存在"));
         }
-        Shot updated = shotService.update(id, request.toDomain());
+        // 局部合并更新：请求中未提供的字段（null / sequence<=0）保留原值，
+        // 避免前端只提交单个字段时把 sequence/novelId 等其余字段清空。
+        Shot existing = opt.get();
+        Shot merged = Shot.builder()
+                .id(id)
+                .novelId(request.getNovelId() != null ? request.getNovelId() : existing.getNovelId())
+                .sequence(request.getSequence() > 0 ? request.getSequence() : existing.getSequence())
+                .originalText(request.getOriginalText() != null ? request.getOriginalText() : existing.getOriginalText())
+                .sceneDescription(request.getSceneDescription() != null ? request.getSceneDescription() : existing.getSceneDescription())
+                .promptText(request.getPromptText() != null ? request.getPromptText() : existing.getPromptText())
+                .mainImageUrl(request.getMainImageUrl() != null ? request.getMainImageUrl() : existing.getMainImageUrl())
+                .altImageUrls(request.getAltImageUrls() != null ? request.getAltImageUrls() : existing.getAltImageUrls())
+                .tags(request.getTags() != null ? request.getTags() : existing.getTags())
+                .state(request.getState() != null ? ShotState.valueOf(request.getState()) : existing.getState())
+                .build();
+        Shot updated = shotService.update(id, merged);
         return ResponseEntity.ok((Object) ShotResponse.from(updated));
     }
 
@@ -90,8 +108,9 @@ public class ShotController {
     public ResponseEntity<?> batchInfer(
             @RequestParam Long novelId,
             @RequestParam(required = false, defaultValue = "all") String scope,
-            @RequestParam(required = false, defaultValue = "1") int page) {
-        shotService.batchInfer(novelId, scope, page);
+            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "10") int size) {
+        shotService.batchInfer(novelId, scope, page, size);
         return ResponseEntity.ok().build();
     }
 
@@ -99,8 +118,9 @@ public class ShotController {
     public ResponseEntity<?> batchGenerate(
             @RequestParam Long novelId,
             @RequestParam(required = false, defaultValue = "all") String scope,
-            @RequestParam(required = false, defaultValue = "1") int page) {
-        shotService.batchGenerate(novelId, scope, page);
+            @RequestParam(required = false, defaultValue = "1") int page,
+            @RequestParam(required = false, defaultValue = "10") int size) {
+        shotService.batchGenerate(novelId, scope, page, size);
         return ResponseEntity.ok().build();
     }
 
